@@ -45,15 +45,17 @@ class Playlist:
             return None
         return self.items[self.index]
 
-    def advance_next(self) -> None:
-        if self.is_empty():
-            return
-        self.index = (self.index + 1) % len(self.items)
+    def advance_next(self) -> bool:
+        if self.is_empty() or self.index + 1 >= len(self.items):
+            return False
+        self.index += 1
+        return True
 
-    def advance_previous(self) -> None:
-        if self.is_empty():
-            return
-        self.index = (self.index - 1) % len(self.items)
+    def advance_previous(self) -> bool:
+        if self.is_empty() or self.index - 1 < 0:
+            return False
+        self.index -= 1
+        return True
 
 
 class SongMetadataService:
@@ -154,13 +156,17 @@ class PlayerController:
     def on_previous(self) -> None:
         if self.playlist.is_empty():
             return
-        self.playlist.advance_previous()
+        if not self.playlist.advance_previous():
+            return
         self.on_play()
 
     def on_next(self) -> None:
         if self.playlist.is_empty():
             return
-        self.playlist.advance_next()
+        if not self.playlist.advance_next():
+            self.audio_player.stop()
+            self.view.render_now_playing("")
+            return
         self.on_play()
 
     def poll_events(self) -> None:
@@ -171,7 +177,6 @@ class PlayerController:
 
         if self.audio_player.status == "paused":
             return
-
     def _render_playlist(self) -> None:
         lines: list[str] = []
         for index, path in enumerate(self.playlist.items, start=1):
