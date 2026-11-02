@@ -70,23 +70,31 @@ class SongMetadataService:
 
 class AudioPlayer:
     def __init__(self) -> None:
-        self.track_started = False
+        self.status = "stopped"
 
     def load(self, path: str) -> None:
+        self.status = "loading"
         pygame.mixer.music.load(path)
+        self.status = "loaded"
 
     def play(self) -> None:
         pygame.mixer.music.play(PLAY_LOOPS, PLAY_START_SECONDS)
-        self.track_started = True
+        self.status = "playing"
 
     def pause(self) -> None:
         pygame.mixer.music.pause()
+        self.status = "paused"
 
     def unpause(self) -> None:
         pygame.mixer.music.unpause()
+        self.status = "playing"
+
+    def stop(self) -> None:
+        pygame.mixer.music.stop()
+        self.status = "stopped"
 
     def is_playing(self) -> bool:
-        return pygame.mixer.music.get_busy()
+        return self.status == "playing" and pygame.mixer.music.get_busy()
 
 
 class PlayerController:
@@ -102,7 +110,6 @@ class PlayerController:
         self.audio_player = audio_player
         self.metadata_service = metadata_service
         self.paused = False
-        self._was_playing = False
 
     def on_add(self) -> None:
         try:
@@ -122,22 +129,16 @@ class PlayerController:
         if current_song is None:
             return
 
-        self._was_playing = False
-        self.audio_player.track_started = False
-
         try:
             self.audio_player.load(current_song)
             self.audio_player.play()
             self.paused = False
         except (pygame.error, OSError) as error:
             logger.exception("Could not start playback", exc_info=error)
-            self._was_playing = False
-            self.audio_player.track_started = False
+            self.audio_player.status = "stopped"
             return
 
         self.view.render_now_playing(self._format_now_playing())
-        self._was_playing = True
-        self.audio_player.track_started = True
 
     def on_pause_toggle(self) -> None:
         try:
@@ -163,19 +164,13 @@ class PlayerController:
         self.on_play()
 
     def poll_events(self) -> None:
-        try:
-            is_playing_now = self.audio_player.is_playing()
-        except pygame.error as error:
-            logger.exception("Could not poll playback state", exc_info=error)
-            return
-
-        if self.audio_player.track_started and self._was_playing and not is_playing_now and not self.paused:
-            self.audio_player.track_started = False
-            self._was_playing = False
+        if self.audio_player.status == "playing" and not self.audio_player.is_playing():
+            self.audio_player.stop()
             self.on_next()
             return
 
-        self._was_playing = is_playing_now
+        if self.audio_player.status == "paused":
+            return
 
     def _render_playlist(self) -> None:
         lines: list[str] = []
