@@ -122,16 +122,22 @@ class PlayerController:
         if current_song is None:
             return
 
+        self._was_playing = False
+        self.audio_player.track_started = False
+
         try:
             self.audio_player.load(current_song)
             self.audio_player.play()
             self.paused = False
         except (pygame.error, OSError) as error:
             logger.exception("Could not start playback", exc_info=error)
+            self._was_playing = False
+            self.audio_player.track_started = False
             return
 
         self.view.render_now_playing(self._format_now_playing())
         self._was_playing = True
+        self.audio_player.track_started = True
 
     def on_pause_toggle(self) -> None:
         try:
@@ -164,6 +170,8 @@ class PlayerController:
             return
 
         if self.audio_player.track_started and self._was_playing and not is_playing_now and not self.paused:
+            self.audio_player.track_started = False
+            self._was_playing = False
             self.on_next()
             return
 
