@@ -143,15 +143,25 @@ class PlayerController:
         self.view.render_now_playing(self._format_now_playing())
 
     def on_pause_toggle(self) -> None:
+        if self.playlist.is_empty() or self.audio_player.status == "stopped":
+            self.paused = False
+            return
+
         try:
-            if self.paused:
+            if self.audio_player.status == "paused":
                 self.audio_player.unpause()
                 self.paused = False
-            else:
+                return
+
+            if self.audio_player.status == "playing":
                 self.audio_player.pause()
                 self.paused = True
+                return
+
+            self.paused = False
         except pygame.error as error:
             logger.exception("Could not toggle pause", exc_info=error)
+            self.paused = False
 
     def on_previous(self) -> None:
         if self.playlist.is_empty():
