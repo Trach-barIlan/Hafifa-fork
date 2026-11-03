@@ -36,28 +36,29 @@ class Playlist:
 
 from collections.abc import Sequence
 
+
 def add_many(self, paths: Sequence[str]) -> None:
     self.items.extend(paths)
 
 def is_empty(self) -> bool:
     return not self.items
 
-    def current(self) -> str | None:
-        if self.is_empty():
-            return None
-        return self.items[self.index]
+def current(self) -> str | None:
+    if self.is_empty():
+        return None
+    return self.items[self.index]
 
-    def advance_next(self) -> bool:
-        if self.is_empty() or self.index + 1 >= len(self.items):
-            return False
-        self.index += 1
-        return True
+def advance_next(self) -> bool:
+    if self.is_empty() or self.index + 1 >= len(self.items):
+        return False
+    self.index += 1
+    return True
 
-    def advance_previous(self) -> bool:
-        if self.is_empty() or self.index - 1 < 0:
-            return False
-        self.index -= 1
-        return True
+def advance_previous(self) -> bool:
+    if self.is_empty() or self.index - 1 < 0:
+        return False
+    self.index -= 1
+    return True
 
 
 class SongMetadataService:
