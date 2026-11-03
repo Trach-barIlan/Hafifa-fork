@@ -12,7 +12,7 @@ from mutagen.easyid3 import EasyID3
 BUTTON_WIDTH = 40
 BUTTON_BG = "AntiqueWhite1"
 POLL_INTERVAL_MS = 100
-PLAY_LOOPS = 1
+PLAY_LOOPS = 0
 PLAY_START_SECONDS = 0.0
 
 logger = logging.getLogger(__name__)
@@ -66,8 +66,11 @@ class SongMetadataService:
     def read(path: str) -> tuple[str, str]:
         try:
             song = EasyID3(path)
-            title = song.get("title", ["Unknown title"])[0]
-            artist = song.get("artist", ["Unknown artist"])[0]
+            title = song.get("title")
+            title = title[0] if title else "Unknown title"
+
+            artist = song.get("artist")
+            artist = artist[0] if artist else "Unknown artist"
             return title, artist
         except (MutagenError, OSError, KeyError):
             return "Unknown title", "Unknown artist"
@@ -119,8 +122,8 @@ class PlayerController:
     def on_add(self) -> None:
         try:
             selected_paths = self.view.select_song_paths()
-        except TclError as error:
-            logger.exception("Could not open file picker", exc_info=error)
+        except TclError:
+            logger.exception("Could not open file picker")
             return
 
         if not selected_paths:
@@ -138,8 +141,8 @@ class PlayerController:
             self.audio_player.load(current_song)
             self.audio_player.play()
             self.paused = False
-        except (pygame.error, OSError) as error:
-            logger.exception("Could not start playback", exc_info=error)
+        except (pygame.error, OSError):
+            logger.exception("Could not start playback")
             self.audio_player.status = "stopped"
             return
 
@@ -162,8 +165,8 @@ class PlayerController:
                 return
 
             self.paused = False
-        except pygame.error as error:
-            logger.exception("Could not toggle pause", exc_info=error)
+        except pygame.error:
+            logger.exception("Could not toggle pause")
             self.paused = False
 
     def on_previous(self) -> None:
@@ -253,10 +256,29 @@ class FrameApp(Frame):
 
 
 if __name__ == "__main__":
-    pygame.mixer.init()
+    mixer_enabled = True
+    try:
+        pygame.mixer.init()
+    except pygame.error:
+        logger.exception("Could not initialize pygame mixer")
+        mixer_enabled = False
+
     window = Tk()
     window.geometry("500x500")
     window.title("MP3 Music Player")
 
     app = FrameApp(window)
+
+    def on_closing():
+        if mixer_enabled:
+            try:
+                pygame.mixer.music.stop()
+                pygame.mixer.quit()
+            except Exception:
+                pass  # Safely ignore cleanup errors if already stopped
+        window.destroy()
+
+    # Bind the handler to the window close button (X)
+    window.protocol("WM_DELETE_WINDOW", on_closing)
+
     window.mainloop()
