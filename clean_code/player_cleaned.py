@@ -234,15 +234,17 @@ class FrameApp(Frame):
         self.label1 = Label(self, fg="Black", font=("Helvetica 12 bold italic", 10), bg="ivory2")
         self.label1.grid(row=6, column=0)
 
-        self.text1 = Text(self, wrap=WORD, width=60)
+        self.text1 = Text(self, wrap=WORD, width=60, state="disabled")
         self.text1.grid(row=8, column=0)
 
         self.after(POLL_INTERVAL_MS, self.poll_music_events)
 
     def render_playlist(self, lines: list[str]) -> None:
-        self.text1.delete(0.0, END)
-        for line in lines:
-            self.text1.insert(END, f"{line}\n")
+        self.text1.config(state="normal")
+        self.text1.delete(1.0, END)
+        playlist_content = "\n".join(lines)
+        self.text1.insert(END, playlist_content)
+        self.text1.config(state="disabled")
 
     def render_now_playing(self, text: str) -> None:
         self.label1["text"] = text
