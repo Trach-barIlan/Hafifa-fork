@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 import datetime
 import logging
 import os
-from pathlib import Path
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import yfinance as yf
