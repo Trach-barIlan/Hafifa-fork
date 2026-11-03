@@ -39,8 +39,8 @@ from collections.abc import Sequence
 def add_many(self, paths: Sequence[str]) -> None:
     self.items.extend(paths)
 
-    def is_empty(self) -> bool:
-        return len(self.items) == 0
+def is_empty(self) -> bool:
+    return not self.items
 
     def current(self) -> str | None:
         if self.is_empty():
