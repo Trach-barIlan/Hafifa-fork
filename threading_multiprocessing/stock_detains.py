@@ -1,20 +1,16 @@
+from dataclasses import asdict, dataclass
 import datetime
 import logging
 import os
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Iterable
 
 import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
-# Suppress noisy yfinance warnings for closed market hours
-logging.getLogger("yfinance").setLevel(logging.CRITICAL)
-
-MAX_WORKERS = 10
+MAX_WORKERS: int = 10
 
 
 @dataclass(frozen=True)
@@ -24,11 +20,39 @@ class StockConfig:
     env_var: str
 
 
-STOCK_CONFIGS = (
+@dataclass(frozen=True)
+class StockTask:
+    """A single stock data-mining task."""
+    timestamp: str
+    stock: StockConfig
+
+
+@dataclass(frozen=True)
+class StockResult:
+    """The result of an hourly stock price change calculation."""
+    hour: str
+    stock_type: str
+    percentage_change: float | None
+
+    def to_csv_dict(self) -> dict[str, str | float | None]:
+        """Formats the result dictionary to match requested CSV column names."""
+        return {
+            "hour": self.hour,
+            "stock type": self.stock_type,
+            "percentage change": self.percentage_change,
+        }
+
+
+STOCK_CONFIGS: tuple[StockConfig, ...] = (
     StockConfig(name="Bitcoin", ticker="BTC-USD", env_var="BITCOIN_DATES"),
     StockConfig(name="Google", ticker="GOOGL", env_var="GOOGLE_DATES"),
     StockConfig(name="Amazon", ticker="AMZN", env_var="AMAZON_DATES"),
 )
+
+
+def configure_environment() -> None:
+    """Sets up global environment settings and silences external warning noise."""
+    logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 
 def resolve_path(file_path: str | Path, base_dir: Path) -> Path:
@@ -41,24 +65,24 @@ def read_timestamps(file_path: Path) -> list[str]:
     """Reads non-empty timestamp lines from a text file."""
     if not file_path.is_file():
         raise FileNotFoundError(f"Dates file not found: {file_path}")
-    with open(file_path, "r", encoding="utf-8") as f:
-        return [line.strip() for line in f if line.strip()]
+    with open(file_path, "r", encoding="utf-8") as dates_file:
+        return [line.strip() for line in dates_file if line.strip()]
 
 
-def load_tasks_for_stock(stock: StockConfig, base_dir: Path) -> list[tuple[str, StockConfig]]:
+def load_tasks_for_stock(stock: StockConfig, base_dir: Path) -> list[StockTask]:
     """Loads timestamps for a specific stock defined by its environment variable."""
-    env_val = os.getenv(stock.env_var)
-    if not env_val:
+    environment_value = os.getenv(stock.env_var)
+    if not environment_value:
         raise ValueError(f"Required environment variable '{stock.env_var}' is not set.")
 
-    file_path = resolve_path(env_val, base_dir)
+    file_path = resolve_path(environment_value, base_dir)
     timestamps = read_timestamps(file_path)
-    return [(ts, stock) for ts in timestamps]
+    return [StockTask(timestamp=timestamp, stock=stock) for timestamp in timestamps]
 
 
-def load_all_tasks(configs: Iterable[StockConfig], base_dir: Path) -> list[tuple[str, StockConfig]]:
-    """Loads all timestamp tasks across all configured stocks."""
-    all_tasks: list[tuple[str, StockConfig]] = []
+def load_all_tasks(configs: Iterable[StockConfig], base_dir: Path) -> list[StockTask]:
+    """Loads all stock tasks across all configured stocks."""
+    all_tasks: list[StockTask] = []
     for config in configs:
         all_tasks.extend(load_tasks_for_stock(config, base_dir))
     return all_tasks
@@ -71,90 +95,94 @@ def calculate_percentage_change(open_price: float, close_price: float) -> float:
     return ((close_price - open_price) / open_price) * 100
 
 
-def fetch_stock_data(timestamp: str, stock: StockConfig) -> dict[str, Any]:
+def fetch_stock_data(task: StockTask) -> StockResult:
     """
     Fetches the 1-hour candle for a stock at the given timestamp and computes percentage change.
     """
-    dt = datetime.datetime.fromisoformat(timestamp.strip())
-    start = dt.replace(second=0, microsecond=0)
-    end = start + datetime.timedelta(hours=1)
+    parsed_datetime = datetime.datetime.fromisoformat(task.timestamp.strip())
+    start_time = parsed_datetime.replace(second=0, microsecond=0)
+    end_time = start_time + datetime.timedelta(hours=1)
 
-    ticker = yf.Ticker(stock.ticker)
-    data = ticker.history(start=start, end=end, interval="1h", prepost=True)
+    ticker = yf.Ticker(task.stock.ticker)
+    history_data = ticker.history(start=start_time, end=end_time, interval="1h", prepost=True)
 
-    if data.empty:
-        return {
-            "hour": timestamp,
-            "stock type": stock.name,
-            "percentage change": None,
-        }
+    if history_data.empty:
+        return StockResult(
+            hour=task.timestamp,
+            stock_type=task.stock.name,
+            percentage_change=None,
+        )
 
-    open_price = float(data["Open"].iloc[0])
-    close_price = float(data["Close"].iloc[0])
-    pct_change = calculate_percentage_change(open_price, close_price)
+    open_price = float(history_data["Open"].iloc[0])
+    close_price = float(history_data["Close"].iloc[0])
+    percentage_change = calculate_percentage_change(open_price, close_price)
 
-    return {
-        "hour": timestamp,
-        "stock type": stock.name,
-        "percentage change": pct_change,
-    }
+    return StockResult(
+        hour=task.timestamp,
+        stock_type=task.stock.name,
+        percentage_change=percentage_change,
+    )
 
 
 def execute_parallel_fetching(
-    tasks: list[tuple[str, StockConfig]], 
+    tasks: list[StockTask], 
     max_workers: int = MAX_WORKERS
-) -> list[dict[str, Any]]:
+) -> list[StockResult]:
     """Fetches stock data in parallel using a ThreadPoolExecutor."""
-    results: list[dict[str, Any]] = []
+    results: list[StockResult] = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_task = {
-            executor.submit(fetch_stock_data, timestamp, stock): (timestamp, stock.name)
-            for timestamp, stock in tasks
+            executor.submit(fetch_stock_data, task): task
+            for task in tasks
         }
 
         for future in as_completed(future_to_task):
-            ts, stock_name = future_to_task[future]
+            task = future_to_task[future]
             try:
                 result = future.result()
                 results.append(result)
-                print(result)
-            except Exception as exc:
-                print(f"[{stock_name}] {ts} generated an exception: {exc}")
+                print(result.to_csv_dict())
+            except Exception as exception:
+                print(f"[{task.stock.name}] {task.timestamp} generated an exception: {exception}")
 
     return results
 
 
-def save_results(results: list[dict[str, Any]], destination_file: Path) -> None:
+def save_results(results: list[StockResult], destination_file: Path) -> None:
     """Saves results list to a CSV file using pandas."""
     if not results:
         print("No results to save.")
         return
-    df = pd.DataFrame(results)
-    df.to_csv(destination_file, index=False)
+    formatted_rows = [result.to_csv_dict() for result in results]
+    data_frame = pd.DataFrame(formatted_rows)
+    data_frame.to_csv(destination_file, index=False)
     print(f"Successfully saved {len(results)} rows to {destination_file}")
 
 
 def main() -> None:
+    """Main program execution."""
+    configure_environment()
+
     base_dir = Path(__file__).resolve().parent
     load_dotenv(base_dir / ".env")
 
-    dest_env = os.getenv("DESTINATION_FILE")
-    if not dest_env:
+    destination_env = os.getenv("DESTINATION_FILE")
+    if not destination_env:
         print("Error: DESTINATION_FILE environment variable is not set.")
         return
 
-    dest_file = resolve_path(dest_env, base_dir)
+    destination_file = resolve_path(destination_env, base_dir)
 
     try:
         tasks = load_all_tasks(STOCK_CONFIGS, base_dir)
-    except (ValueError, FileNotFoundError) as err:
-        print(f"Initialization error: {err}")
+    except (ValueError, FileNotFoundError) as error:
+        print(f"Initialization error: {error}")
         return
 
     print(f"Fetching data for {len(tasks)} tasks using {MAX_WORKERS} workers...")
     results = execute_parallel_fetching(tasks, max_workers=MAX_WORKERS)
-    save_results(results, dest_file)
+    save_results(results, destination_file)
 
 
 if __name__ == "__main__":
