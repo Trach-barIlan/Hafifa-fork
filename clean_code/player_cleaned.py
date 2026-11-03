@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from tkinter import END, WORD, Button, Frame, Label, TclError, Text, Tk
 from tkinter.filedialog import askopenfilenames
 from typing import Protocol
@@ -34,31 +35,28 @@ class Playlist:
         self.index = 0
 
 
-from collections.abc import Sequence
+    def add_many(self, paths: Sequence[str]) -> None:
+        self.items.extend(paths)
 
+    def is_empty(self) -> bool:
+        return not self.items
 
-def add_many(self, paths: Sequence[str]) -> None:
-    self.items.extend(paths)
+    def current(self) -> str | None:
+        if self.is_empty():
+            return None
+        return self.items[self.index]
 
-def is_empty(self) -> bool:
-    return not self.items
+    def advance_next(self) -> bool:
+        if self.is_empty() or self.index + 1 >= len(self.items):
+            return False
+        self.index += 1
+        return True
 
-def current(self) -> str | None:
-    if self.is_empty():
-        return None
-    return self.items[self.index]
-
-def advance_next(self) -> bool:
-    if self.is_empty() or self.index + 1 >= len(self.items):
-        return False
-    self.index += 1
-    return True
-
-def advance_previous(self) -> bool:
-    if self.is_empty() or self.index - 1 < 0:
-        return False
-    self.index -= 1
-    return True
+    def advance_previous(self) -> bool:
+        if self.is_empty() or self.index - 1 < 0:
+            return False
+        self.index -= 1
+        return True
 
 
 class SongMetadataService:
@@ -117,7 +115,10 @@ class PlayerController:
         self.playlist = playlist
         self.audio_player = audio_player
         self.metadata_service = metadata_service
-        self.paused = False
+        self.playback_state = "STOPPED"
+
+    def _set_playback_state(self, state: str) -> None:
+        self.playback_state = state
 
     def on_add(self) -> None:
         try:
@@ -137,41 +138,47 @@ class PlayerController:
         if current_song is None:
             return
 
+        self._set_playback_state("STOPPED")
+
         try:
+            self.audio_player.stop()
             self.audio_player.load(current_song)
             self.audio_player.play()
-            self.paused = False
         except (pygame.error, OSError):
             logger.exception("Could not start playback")
             self.audio_player.status = "stopped"
+            self._set_playback_state("STOPPED")
             return
 
+        self._set_playback_state("PLAYING")
         self.view.render_now_playing(self._format_now_playing())
 
     def on_pause_toggle(self) -> None:
-        if self.playlist.is_empty() or self.audio_player.status == "stopped":
-            self.paused = False
+        if self.playlist.is_empty() or self.playback_state == "STOPPED":
+            self._set_playback_state("STOPPED")
             return
 
         try:
-            if self.audio_player.status == "paused":
+            if self.playback_state == "PAUSED":
                 self.audio_player.unpause()
-                self.paused = False
+                self._set_playback_state("PLAYING")
                 return
 
-            if self.audio_player.status == "playing":
+            if self.playback_state == "PLAYING":
                 self.audio_player.pause()
-                self.paused = True
+                self._set_playback_state("PAUSED")
                 return
-
-            self.paused = False
         except pygame.error:
             logger.exception("Could not toggle pause")
-            self.paused = False
+            self._set_playback_state("STOPPED")
 
     def on_previous(self) -> None:
         if self.playlist.is_empty():
             return
+
+        self.audio_player.stop()
+        self._set_playback_state("STOPPED")
+
         if not self.playlist.advance_previous():
             return
         self.on_play()
@@ -179,19 +186,23 @@ class PlayerController:
     def on_next(self) -> None:
         if self.playlist.is_empty():
             return
+
+        self.audio_player.stop()
+        self._set_playback_state("STOPPED")
+
         if not self.playlist.advance_next():
-            self.audio_player.stop()
             self.view.render_now_playing("")
             return
         self.on_play()
 
     def poll_events(self) -> None:
-        if self.audio_player.status == "playing" and not self.audio_player.is_playing():
+        if self.playback_state == "PLAYING" and not self.audio_player.is_playing():
             self.audio_player.stop()
+            self._set_playback_state("STOPPED")
             self.on_next()
             return
 
-        if self.audio_player.status == "paused":
+        if self.playback_state == "PAUSED":
             return
     def _render_playlist(self) -> None:
         lines: list[str] = []
