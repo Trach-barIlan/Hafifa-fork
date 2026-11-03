@@ -33,9 +33,11 @@ class Playlist:
         self.items: list[str] = []
         self.index = 0
 
-    def add_many(self, paths: tuple[str, ...]) -> None:
-        for path in paths:
-            self.items.append(path)
+
+from collections.abc import Sequence
+
+def add_many(self, paths: Sequence[str]) -> None:
+    self.items.extend(paths)
 
     def is_empty(self) -> bool:
         return len(self.items) == 0
