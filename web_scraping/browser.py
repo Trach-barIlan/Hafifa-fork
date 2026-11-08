@@ -1,8 +1,8 @@
 import base64
 import json
+import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 
+logger = logging.getLogger(__name__)
+
 BASE_OUTPUT = Path("output")
 BASE_INPUT = Path("input")
 URLS_FILE = BASE_INPUT / "urls.input"
@@ -22,27 +24,22 @@ MAX_ATTEMPTS = 2
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
-@dataclass
-class ScrapeResult:
-    url: str
-    external_links: int = 0
-    loaded_assets: int = 0
-    error: str | None = None
-
-
 def load_urls(file_path: Path) -> list[str]:
     if not file_path.exists():
-        print(f"Input file {file_path} does not exist. Please create it and add URLs to scrape.")
+        logger.error(
+            "Input file %s does not exist. Please create it and add URLs to scrape.",
+            file_path,
+        )
         sys.exit(1)
 
     with file_path.open("r", encoding="utf-8") as file:
-        urls = [line.strip() for line in file if line.strip()]
+        urls = [line_stripped for line in file if (line_stripped := line.strip())]
 
     if not urls:
-        print(f"No URLs found in {file_path}")
+        logger.warning("No URLs found in %s", file_path)
         sys.exit(0)
 
-    print(f"Found {len(urls)} URLs to scrape: {urls}")
+    logger.info("Found %d URLs to scrape: %s", len(urls), urls)
     return urls
 
 
@@ -58,7 +55,7 @@ def create_driver() -> webdriver.Chrome:
     return webdriver.Chrome(service=Service(), options=build_chrome_options())
 
 
-def wait_for_page_ready(driver: webdriver.Chrome, timeout: int = 15) -> None:
+def wait_for_page_ready(driver: webdriver.Chrome, timeout: int = 15):
     WebDriverWait(driver, timeout).until(
         lambda browser: browser.execute_script("return document.readyState") == "complete"
     )
@@ -110,7 +107,7 @@ def load_existing_json(file_path: Path) -> dict[str, Any]:
         with file_path.open("r", encoding="utf-8") as file:
             return json.load(file)
     except JSONDecodeError:
-        print(f"Warning: ignoring invalid JSON in {file_path}")
+        logger.warning("Ignoring invalid JSON in %s", file_path)
         return {}
 
 
@@ -132,7 +129,7 @@ def write_scrape_output(output_dir: Path, loaded_assets: set[str], page_html: st
         json.dump(data, file, indent=4)
 
 
-def scrape_url(index: int, url: str) -> ScrapeResult:
+def scrape_url(index: int, url: str) -> None:
     output_dir = BASE_OUTPUT / f"url_{index}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -149,30 +146,47 @@ def scrape_url(index: int, url: str) -> ScrapeResult:
             driver.save_screenshot(str(screenshot_path))
             write_scrape_output(output_dir, loaded_assets, driver.page_source)
 
-            return ScrapeResult(
-                url=url,
-                external_links=len(external_links),
-                loaded_assets=len(loaded_assets),
+            logger.info(
+                "Scraped %s (url_%d): %d external links, %d loaded assets.",
+                url,
+                index,
+                len(external_links),
+                len(loaded_assets),
             )
+            return
         except TimeoutException as error:
             if attempt < MAX_ATTEMPTS and is_retryable_error(error):
+                logger.warning(
+                    "Attempt %d/%d failed for %s (timeout). Retrying...",
+                    attempt,
+                    MAX_ATTEMPTS,
+                    url,
+                )
                 continue
-            return ScrapeResult(url=url, error=f"Timeout while loading page: {error}")
+            logger.error("Failed %s: Timeout while loading page: %s", url, error)
+            return
         except WebDriverException as error:
             if attempt < MAX_ATTEMPTS and is_retryable_error(error):
+                logger.warning(
+                    "Attempt %d/%d failed for %s (WebDriver error). Retrying...",
+                    attempt,
+                    MAX_ATTEMPTS,
+                    url,
+                )
                 continue
-            return ScrapeResult(url=url, error=f"WebDriver error: {error}")
+            logger.error("Failed %s: WebDriver error: %s", url, error)
+            return
         except OSError as error:
-            return ScrapeResult(url=url, error=f"File I/O error: {error}")
+            logger.error("Failed %s: File I/O error: %s", url, error)
+            return
         finally:
             driver.quit()
 
-    return ScrapeResult(url=url, error="Failed to scrape after retry attempts")
+    logger.error("Failed %s: Failed to scrape after retry attempts", url)
 
 
-def run_parallel_scrape(urls: list[str]) -> list[ScrapeResult]:
+def run_parallel_scrape(urls: list[str]) -> None:
     workers = min(MAX_WORKERS, len(urls))
-    results: list[ScrapeResult] = []
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [
@@ -180,31 +194,20 @@ def run_parallel_scrape(urls: list[str]) -> list[ScrapeResult]:
             for index, url in enumerate(urls, start=1)
         ]
         for future in as_completed(futures):
-            results.append(future.result())
-
-    return results
-
-
-def print_summary(results: list[ScrapeResult]) -> None:
-    for result in results:
-        if result.error:
-            print(f"Failed {result.url}: {result.error}")
-            continue
-
-        print(
-            f"Scraped {result.url}: {result.external_links} external links, "
-            f"{result.loaded_assets} loaded assets."
-        )
+            future.result()
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
     BASE_OUTPUT.mkdir(parents=True, exist_ok=True)
     urls = load_urls(URLS_FILE)
 
-    print("Scraping URLs...")
-    results = run_parallel_scrape(urls)
-    print_summary(results)
-    print("Scraping complete.")
+    logger.info("Scraping URLs...")
+    run_parallel_scrape(urls)
+    logger.info("Scraping complete.")
 
 
 if __name__ == "__main__":
