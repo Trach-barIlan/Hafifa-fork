@@ -63,11 +63,7 @@ def wait_for_page_ready(driver: webdriver.Chrome, timeout: int = 15):
 
 def is_external_link(link: str, base_domain: str) -> bool:
     parsed = urlparse(link)
-    if not parsed.netloc:
-        return False
-    if parsed.scheme.lower() not in {"http", "https"}:
-        return False
-    return parsed.netloc != base_domain
+    return False if not parsed.netloc or parsed.scheme.lower() not in {"http", "https"} else parsed.netloc != base_domain
 
 
 def extract_external_links(driver: webdriver.Chrome, base_domain: str) -> set[str]:
