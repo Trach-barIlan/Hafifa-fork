@@ -3,9 +3,7 @@ import json
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 from selenium import webdriver
@@ -95,18 +93,6 @@ def encode_file_base64(file_path: Path) -> str:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
-def load_existing_json(file_path: Path) -> dict[str, Any]:
-    if not file_path.exists():
-        return {}
-
-    try:
-        with file_path.open("r", encoding="utf-8") as file:
-            return json.load(file)
-    except JSONDecodeError:
-        logger.warning("Ignoring invalid JSON in %s", file_path)
-        return {}
-
-
 def is_retryable_error(error: Exception) -> bool:
     return isinstance(error, (TimeoutException, WebDriverException))
 
@@ -116,10 +102,11 @@ def write_scrape_output(output_dir: Path, loaded_assets: set[str], page_html: st
     browse_path = output_dir / "browse.json"
 
     screenshot_b64 = encode_file_base64(screenshot_path)
-    data = load_existing_json(browse_path)
-    data["screenshot"] = screenshot_b64
-    data["resource"] = sorted(loaded_assets)
-    data["html"] = page_html
+    data = {
+        "html": page_html,
+        "resources": sorted(loaded_assets),
+        "screenshot": screenshot_b64,
+    }
 
     with browse_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=4)
