@@ -1,33 +1,53 @@
-"""
-Stock Price Mining Exercise - Multithreading.
-
-Fetches hourly stock data for configured stock types (Bitcoin, Google, Amazon)
-using yfinance and computes percentage change concurrently.
-Conforms to Python Clean Code standards (zedr/clean-code-python).
-"""
-
 from dataclasses import dataclass
 import datetime
 import logging
-import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable
 
 import pandas as pd
+from pydantic import AliasChoices, Field, ValidationError, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import yfinance as yf
-from dotenv import load_dotenv
 
-MAX_WORKERS: int = 10
+BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
+
+
+class Settings(BaseSettings):
+    """Application settings and environment variable configuration."""
+    model_config = SettingsConfigDict(
+        env_file=BASE_DIR / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    bitcoin_dates: Path = Field(validation_alias=AliasChoices("BITCOIN_DATES", "TIMES_PATH"))
+    google_dates: Path = Field(validation_alias=AliasChoices("GOOGLE_DATES"))
+    amazon_dates: Path = Field(validation_alias=AliasChoices("AMAZON_DATES"))
+    destination_file: Path = Field(validation_alias=AliasChoices("DESTINATION_FILE"))
+    max_workers: int = Field(default=10, validation_alias=AliasChoices("MAX_WORKERS"))
+
+    @field_validator("bitcoin_dates", "google_dates", "amazon_dates", "destination_file", mode="after")
+    @classmethod
+    def resolve_relative_path(cls, file_path: Path) -> Path:
+        """Converts relative paths to absolute paths resolved against BASE_DIR."""
+        return file_path if file_path.is_absolute() else BASE_DIR / file_path
 
 
 @dataclass(frozen=True)
 class StockConfig:
-    """Configuration mapping a stock name to its ticker and environment variable."""
+    """Configuration mapping a stock name to its ticker and settings attribute."""
     name: str
     ticker: str
-    env_var: str
+    settings_attribute: str
+
+
+STOCK_CONFIGS: tuple[StockConfig, ...] = (
+    StockConfig(name="Bitcoin", ticker="BTC-USD", settings_attribute="bitcoin_dates"),
+    StockConfig(name="Google", ticker="GOOGL", settings_attribute="google_dates"),
+    StockConfig(name="Amazon", ticker="AMZN", settings_attribute="amazon_dates"),
+)
 
 
 @dataclass(frozen=True)
@@ -53,13 +73,6 @@ class StockResult:
         }
 
 
-STOCK_CONFIGS: tuple[StockConfig, ...] = (
-    StockConfig(name="Bitcoin", ticker="BTC-USD", env_var="BITCOIN_DATES"),
-    StockConfig(name="Google", ticker="GOOGL", env_var="GOOGLE_DATES"),
-    StockConfig(name="Amazon", ticker="AMZN", env_var="AMAZON_DATES"),
-)
-
-
 def configure_environment() -> None:
     """Sets up global logging configuration and silences external warning noise."""
     logging.basicConfig(
@@ -70,14 +83,6 @@ def configure_environment() -> None:
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 
-def resolve_path(file_path: str | Path, base_dir: Path) -> Path:
-    """Resolves relative file paths against a base directory."""
-    candidate_path = Path(file_path)
-    if candidate_path.is_absolute():
-        return candidate_path
-    return base_dir / candidate_path
-
-
 def read_timestamps(file_path: Path) -> list[str]:
     """Reads non-empty timestamp lines from a text file."""
     if not file_path.is_file():
@@ -86,22 +91,18 @@ def read_timestamps(file_path: Path) -> list[str]:
         return [stripped_line for line in dates_file if (stripped_line := line.strip())]
 
 
-def load_tasks_for_stock(stock: StockConfig, base_dir: Path) -> list[StockTask]:
-    """Loads timestamps for a specific stock defined by its environment variable."""
-    environment_value = os.getenv(stock.env_var)
-    if not environment_value:
-        raise ValueError(f"Required environment variable '{stock.env_var}' is not set.")
-
-    file_path = resolve_path(environment_value, base_dir)
-    timestamps = read_timestamps(file_path)
+def load_tasks_for_stock(stock: StockConfig, settings: Settings) -> list[StockTask]:
+    """Loads timestamps for a specific stock defined in application settings."""
+    dates_file: Path = getattr(settings, stock.settings_attribute)
+    timestamps = read_timestamps(dates_file)
     return [StockTask(timestamp=timestamp, stock=stock) for timestamp in timestamps]
 
 
-def load_all_tasks(configs: Iterable[StockConfig], base_dir: Path) -> list[StockTask]:
+def load_all_tasks(configs: Iterable[StockConfig], settings: Settings) -> list[StockTask]:
     """Loads all stock tasks across all configured stocks."""
     all_tasks: list[StockTask] = []
     for config in configs:
-        all_tasks.extend(load_tasks_for_stock(config, base_dir))
+        all_tasks.extend(load_tasks_for_stock(config, settings))
     return all_tasks
 
 
@@ -143,7 +144,7 @@ def fetch_stock_data(task: StockTask) -> StockResult:
 
 def execute_parallel_fetching(
     tasks: list[StockTask], 
-    max_workers: int = MAX_WORKERS
+    max_workers: int = 10
 ) -> list[StockResult]:
     """Fetches stock data in parallel using a ThreadPoolExecutor."""
     results = []
@@ -181,25 +182,21 @@ def main() -> None:
     """Main program execution."""
     configure_environment()
 
-    base_dir = Path(__file__).resolve().parent
-    load_dotenv(base_dir / ".env")
-
-    destination_env = os.getenv("DESTINATION_FILE")
-    if not destination_env:
-        logger.error("DESTINATION_FILE environment variable is not set.")
+    try:
+        settings = Settings()
+    except ValidationError as error:
+        logger.error("Configuration error: %s", error)
         return
-
-    destination_file = resolve_path(destination_env, base_dir)
 
     try:
-        tasks = load_all_tasks(STOCK_CONFIGS, base_dir)
-    except (ValueError, FileNotFoundError) as error:
-        logger.error("Initialization error: %s", error)
+        tasks = load_all_tasks(STOCK_CONFIGS, settings)
+    except FileNotFoundError as error:
+        logger.error("File error: %s", error)
         return
 
-    logger.info("Fetching data for %d tasks using %d workers...", len(tasks), MAX_WORKERS)
-    results = execute_parallel_fetching(tasks, max_workers=MAX_WORKERS)
-    save_results(results, destination_file)
+    logger.info("Fetching data for %d tasks using %d workers...", len(tasks), settings.max_workers)
+    results = execute_parallel_fetching(tasks, max_workers=settings.max_workers)
+    save_results(results, settings.destination_file)
 
 
 if __name__ == "__main__":
