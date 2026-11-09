@@ -137,35 +137,28 @@ def scrape_url(index: int, url: str) -> None:
                 len(loaded_assets),
             )
             return
-        except TimeoutException as error:
-            if attempt < MAX_ATTEMPTS and is_retryable_error(error):
-                logger.warning(
-                    "Attempt %d/%d failed for %s (timeout). Retrying...",
-                    attempt,
-                    MAX_ATTEMPTS,
-                    url,
-                )
-                continue
-            logger.error("Failed %s: Timeout while loading page: %s", url, error)
-            return
         except WebDriverException as error:
-            if attempt < MAX_ATTEMPTS and is_retryable_error(error):
+            if attempt < MAX_ATTEMPTS:
                 logger.warning(
-                    "Attempt %d/%d failed for %s (WebDriver error). Retrying...",
+                    "Attempt %d/%d failed for %s (%s). Retrying...",
                     attempt,
                     MAX_ATTEMPTS,
                     url,
+                    type(error).__name__,
                 )
                 continue
-            logger.error("Failed %s: WebDriver error: %s", url, error)
+            logger.error(
+                "Failed %s: %s while loading page: %s",
+                url,
+                type(error).__name__,
+                error,
+            )
             return
         except OSError as error:
             logger.error("Failed %s: File I/O error: %s", url, error)
             return
         finally:
             driver.quit()
-
-    logger.error("Failed %s: Failed to scrape after retry attempts", url)
 
 
 def run_parallel_scrape(urls: list[str]) -> None:
