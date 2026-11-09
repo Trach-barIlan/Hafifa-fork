@@ -129,7 +129,7 @@ def execute_parallel_fetching(
     max_workers: int = MAX_WORKERS
 ) -> list[StockResult]:
     """Fetches stock data in parallel using a ThreadPoolExecutor."""
-    results: list[StockResult] = []
+    results = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_task = {
