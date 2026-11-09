@@ -58,45 +58,55 @@ def scrape_url(index: int, url: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        driver = create_driver()
+        driver = None
         try:
+            driver = create_driver()
             driver.get(url)
             wait_for_page_ready(driver)
 
             external_links = extract_external_links(driver, urlparse(url).netloc)
             loaded_assets = extract_loaded_assets(driver)
+            all_resources = loaded_assets | external_links
 
             screenshot_path = output_dir / "screenshot.png"
             driver.save_screenshot(str(screenshot_path))
-            write_scrape_output(output_dir, loaded_assets, driver.page_source)
+            write_scrape_output(output_dir, all_resources, driver.page_source)
 
             logger.info(
-                "Scraped %s (url_%d): %d external links, %d loaded assets.",
+                "Scraped %s (url_%d): %d resources (%d external links, %d loaded assets).",
                 url,
                 index,
+                len(all_resources),
                 len(external_links),
                 len(loaded_assets),
             )
             return
         except WebDriverException as error:
-            if attempt == MAX_ATTEMPTS:
-                raise Exception
-            logger.warning(
-                "Attempt %d/%d failed for %s (%s). Retrying...",
-                attempt,
-                MAX_ATTEMPTS,
+            if attempt < MAX_ATTEMPTS:
+                logger.warning(
+                    "Attempt %d/%d failed for %s (%s). Retrying...",
+                    attempt,
+                    MAX_ATTEMPTS,
+                    url,
+                    type(error).__name__,
+                )
+                continue
+            logger.error(
+                "Failed %s: %s while loading page: %s",
                 url,
                 type(error).__name__,
+                error,
             )
-            continue
+            return
         except OSError as error:
             logger.error("Failed %s: File I/O error: %s", url, error)
             return
-        except Exception as e:
-            logger.error("Failed %s: %s", url, e)
+        except Exception as error:
+            logger.error("Failed %s: Unexpected error: %s", url, error)
             return
         finally:
-            driver.quit()
+            if driver is not None:
+                driver.quit()
 
 
 def create_driver() -> webdriver.Chrome:
@@ -127,7 +137,12 @@ def extract_external_links(driver: webdriver.Chrome, base_domain: str) -> set[st
 
 def is_external_link(link: str, base_domain: str) -> bool:
     parsed = urlparse(link)
-    return False if not parsed.netloc or parsed.scheme.lower() not in {"http", "https"} else parsed.netloc != base_domain
+    return is_http_url(link) and parsed.netloc != base_domain
+
+
+def is_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(parsed.netloc and parsed.scheme.lower() in {"http", "https"})
 
 
 def extract_loaded_assets(driver: webdriver.Chrome) -> set[str]:
@@ -143,17 +158,18 @@ def extract_loaded_assets(driver: webdriver.Chrome) -> set[str]:
         "return Array.from(document.querySelectorAll('link[rel=\"stylesheet\"]'))"
         ".map(el => el.href).filter(Boolean);"
     )
-    return set(img_srcs) | set(script_srcs) | set(css_hrefs)
+    all_assets = set(img_srcs) | set(script_srcs) | set(css_hrefs)
+    return {asset for asset in all_assets if is_http_url(asset)}
 
 
-def write_scrape_output(output_dir: Path, loaded_assets: set[str], page_html: str) -> None:
+def write_scrape_output(output_dir: Path, resources: set[str], page_html: str) -> None:
     screenshot_path = output_dir / "screenshot.png"
     browse_path = output_dir / "browse.json"
 
     screenshot_b64 = encode_file_base64(screenshot_path)
     data = {
         "html": page_html,
-        "resources": sorted(loaded_assets),
+        "resources": sorted(resources),
         "screenshot": screenshot_b64,
     }
 
