@@ -1,4 +1,12 @@
-from dataclasses import asdict, dataclass
+"""
+Stock Price Mining Exercise - Multithreading.
+
+Fetches hourly stock data for configured stock types (Bitcoin, Google, Amazon)
+using yfinance and computes percentage change concurrently.
+Conforms to Python Clean Code standards (zedr/clean-code-python).
+"""
+
+from dataclasses import dataclass
 import datetime
 import logging
 import os
@@ -11,10 +19,12 @@ import yfinance as yf
 from dotenv import load_dotenv
 
 MAX_WORKERS: int = 10
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class StockConfig:
+    """Configuration mapping a stock name to its ticker and environment variable."""
     name: str
     ticker: str
     env_var: str
@@ -51,14 +61,21 @@ STOCK_CONFIGS: tuple[StockConfig, ...] = (
 
 
 def configure_environment() -> None:
-    """Sets up global environment settings and silences external warning noise."""
+    """Sets up global logging configuration and silences external warning noise."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 
 def resolve_path(file_path: str | Path, base_dir: Path) -> Path:
     """Resolves relative file paths against a base directory."""
-    path = Path(file_path)
-    return path if path.is_absolute() else base_dir / path
+    candidate_path = Path(file_path)
+    if candidate_path.is_absolute():
+        return candidate_path
+    return base_dir / candidate_path
 
 
 def read_timestamps(file_path: Path) -> list[str]:
@@ -66,7 +83,7 @@ def read_timestamps(file_path: Path) -> list[str]:
     if not file_path.is_file():
         raise FileNotFoundError(f"Dates file not found: {file_path}")
     with open(file_path, "r", encoding="utf-8") as dates_file:
-        return [line.strip() for line in dates_file if line.strip()]
+        return [stripped_line for line in dates_file if (stripped_line := line.strip())]
 
 
 def load_tasks_for_stock(stock: StockConfig, base_dir: Path) -> list[StockTask]:
@@ -142,9 +159,9 @@ def execute_parallel_fetching(
             try:
                 result = future.result()
                 results.append(result)
-                print(result.to_csv_dict())
+                logger.info("%s", result.to_csv_dict())
             except Exception as exception:
-                print(f"[{task.stock.name}] {task.timestamp} generated an exception: {exception}")
+                logger.error("[%s] %s generated an exception: %s", task.stock.name, task.timestamp, exception)
 
     return results
 
@@ -152,12 +169,12 @@ def execute_parallel_fetching(
 def save_results(results: list[StockResult], destination_file: Path) -> None:
     """Saves results list to a CSV file using pandas."""
     if not results:
-        print("No results to save.")
+        logger.warning("No results to save.")
         return
     formatted_rows = [result.to_csv_dict() for result in results]
     data_frame = pd.DataFrame(formatted_rows)
     data_frame.to_csv(destination_file, index=False)
-    print(f"Successfully saved {len(results)} rows to {destination_file}")
+    logger.info("Successfully saved %d rows to %s", len(results), destination_file)
 
 
 def main() -> None:
@@ -169,7 +186,7 @@ def main() -> None:
 
     destination_env = os.getenv("DESTINATION_FILE")
     if not destination_env:
-        print("Error: DESTINATION_FILE environment variable is not set.")
+        logger.error("DESTINATION_FILE environment variable is not set.")
         return
 
     destination_file = resolve_path(destination_env, base_dir)
@@ -177,10 +194,10 @@ def main() -> None:
     try:
         tasks = load_all_tasks(STOCK_CONFIGS, base_dir)
     except (ValueError, FileNotFoundError) as error:
-        print(f"Initialization error: {error}")
+        logger.error("Initialization error: %s", error)
         return
 
-    print(f"Fetching data for {len(tasks)} tasks using {MAX_WORKERS} workers...")
+    logger.info("Fetching data for %d tasks using %d workers...", len(tasks), MAX_WORKERS)
     results = execute_parallel_fetching(tasks, max_workers=MAX_WORKERS)
     save_results(results, destination_file)
 
