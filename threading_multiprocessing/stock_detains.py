@@ -11,7 +11,7 @@ import datetime
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Sequence
+from typing import List, Sequence
 
 import pandas as pd
 from pydantic import ValidationError
@@ -49,7 +49,7 @@ def configure_environment() -> None:
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 
-def read_timestamps(file_path: Path) -> list[str]:
+def read_timestamps(file_path: Path) -> List[str]:
     """Reads non-empty timestamp lines from a text file."""
     if not file_path.is_file():
         raise FileNotFoundError(f"Dates file not found: {file_path}")
@@ -57,15 +57,18 @@ def read_timestamps(file_path: Path) -> list[str]:
         return [stripped_line for line in dates_file if (stripped_line := line.strip())]
 
 
-def load_tasks_for_stock(stock: StockConfig) -> list[StockTask]:
+def load_tasks_for_stock(stock: StockConfig) -> List[StockTask]:
     """Loads timestamps for a specific stock directly from its configured dates file."""
     timestamps = read_timestamps(stock.dates_file)
-    return [StockTask(timestamp=timestamp, stock=stock) for timestamp in timestamps]
+    return [
+        StockTask(timestamp=datetime.datetime.fromisoformat(timestamp), stock=stock)
+        for timestamp in timestamps
+    ]
 
 
-def load_all_tasks(stocks: Sequence[StockConfig]) -> list[StockTask]:
+def load_all_tasks(stocks: Sequence[StockConfig]) -> List[StockTask]:
     """Loads all stock tasks across all configured stocks."""
-    all_tasks: list[StockTask] = []
+    all_tasks: List[StockTask] = []
     for stock in stocks:
         all_tasks.extend(load_tasks_for_stock(stock))
     return all_tasks
@@ -82,8 +85,7 @@ def fetch_stock_data(task: StockTask) -> StockResult:
     """
     Fetches the 1-hour candle for a stock at the given timestamp and computes percentage change.
     """
-    parsed_datetime = datetime.datetime.fromisoformat(task.timestamp.strip())
-    start_time = parsed_datetime.replace(second=0, microsecond=0)
+    start_time = task.timestamp.replace(second=0, microsecond=0)
     end_time = start_time + datetime.timedelta(hours=1)
 
     ticker = yf.Ticker(task.stock.ticker)
@@ -115,7 +117,7 @@ def fetch_stock_data(task: StockTask) -> StockResult:
 def execute_parallel_fetching(
     tasks: Sequence[StockTask], 
     max_workers: int = DEFAULT_MAX_WORKERS
-) -> list[StockResult]:
+) -> List[StockResult]:
     """Fetches stock data in parallel using a ThreadPoolExecutor."""
     results = []
 

@@ -3,6 +3,7 @@ Constants and static configurations for stock price mining.
 """
 
 from pathlib import Path
+from typing import List
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -44,7 +45,7 @@ class Settings(BaseSettings):
         return file_path if file_path.is_absolute() else BASE_DIR / file_path
 
     @property
-    def stocks(self) -> list[StockConfig]:
+    def stocks(self) -> List[StockConfig]:
         """Returns the configured stocks bound to their validated file paths."""
         return [
             StockConfig(name="Bitcoin", ticker=BITCOIN_TICKER, dates_file=self.bitcoin_dates),
