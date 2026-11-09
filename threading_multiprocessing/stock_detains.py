@@ -11,56 +11,32 @@ import datetime
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Iterable
+from typing import Sequence
 
 import pandas as pd
-from pydantic import AliasChoices, Field, ValidationError, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import ValidationError
 import yfinance as yf
 
 try:
     from consts import (
-        BASE_DIR,
         DEFAULT_MAX_WORKERS,
         LOG_DATE_FORMAT,
         LOG_FORMAT,
-        STOCK_CONFIGS,
         YFINANCE_INTERVAL,
+        Settings,
     )
     from models import StockConfig, StockResult, StockTask
 except ImportError:
     from threading_multiprocessing.consts import (
-        BASE_DIR,
         DEFAULT_MAX_WORKERS,
         LOG_DATE_FORMAT,
         LOG_FORMAT,
-        STOCK_CONFIGS,
         YFINANCE_INTERVAL,
+        Settings,
     )
     from threading_multiprocessing.models import StockConfig, StockResult, StockTask
 
 logger = logging.getLogger(__name__)
-
-
-class Settings(BaseSettings):
-    """Application settings and environment variable configuration."""
-    model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    bitcoin_dates: Path = Field(validation_alias=AliasChoices("BITCOIN_DATES", "TIMES_PATH"))
-    google_dates: Path = Field(validation_alias=AliasChoices("GOOGLE_DATES"))
-    amazon_dates: Path = Field(validation_alias=AliasChoices("AMAZON_DATES"))
-    destination_file: Path = Field(validation_alias=AliasChoices("DESTINATION_FILE"))
-    max_workers: int = Field(default=DEFAULT_MAX_WORKERS, validation_alias=AliasChoices("MAX_WORKERS"))
-
-    @field_validator("bitcoin_dates", "google_dates", "amazon_dates", "destination_file", mode="after")
-    @classmethod
-    def resolve_relative_path(cls, file_path: Path) -> Path:
-        """Converts relative paths to absolute paths resolved against BASE_DIR."""
-        return file_path if file_path.is_absolute() else BASE_DIR / file_path
 
 
 def configure_environment() -> None:
@@ -81,18 +57,17 @@ def read_timestamps(file_path: Path) -> list[str]:
         return [stripped_line for line in dates_file if (stripped_line := line.strip())]
 
 
-def load_tasks_for_stock(stock: StockConfig, settings: Settings) -> list[StockTask]:
-    """Loads timestamps for a specific stock defined in application settings."""
-    dates_file: Path = getattr(settings, stock.settings_attribute)
-    timestamps = read_timestamps(dates_file)
+def load_tasks_for_stock(stock: StockConfig) -> list[StockTask]:
+    """Loads timestamps for a specific stock directly from its configured dates file."""
+    timestamps = read_timestamps(stock.dates_file)
     return [StockTask(timestamp=timestamp, stock=stock) for timestamp in timestamps]
 
 
-def load_all_tasks(configs: Iterable[StockConfig], settings: Settings) -> list[StockTask]:
+def load_all_tasks(stocks: Sequence[StockConfig]) -> list[StockTask]:
     """Loads all stock tasks across all configured stocks."""
     all_tasks: list[StockTask] = []
-    for config in configs:
-        all_tasks.extend(load_tasks_for_stock(config, settings))
+    for stock in stocks:
+        all_tasks.extend(load_tasks_for_stock(stock))
     return all_tasks
 
 
@@ -138,7 +113,7 @@ def fetch_stock_data(task: StockTask) -> StockResult:
 
 
 def execute_parallel_fetching(
-    tasks: list[StockTask], 
+    tasks: Sequence[StockTask], 
     max_workers: int = DEFAULT_MAX_WORKERS
 ) -> list[StockResult]:
     """Fetches stock data in parallel using a ThreadPoolExecutor."""
@@ -162,7 +137,7 @@ def execute_parallel_fetching(
     return results
 
 
-def save_results(results: list[StockResult], destination_file: Path) -> None:
+def save_results(results: Sequence[StockResult], destination_file: Path) -> None:
     """Saves results list to a CSV file using pandas."""
     if not results:
         logger.warning("No results to save.")
@@ -184,7 +159,7 @@ def main() -> None:
         return
 
     try:
-        tasks = load_all_tasks(STOCK_CONFIGS, settings)
+        tasks = load_all_tasks(settings.stocks)
     except FileNotFoundError as error:
         logger.error("File error: %s", error)
         return
