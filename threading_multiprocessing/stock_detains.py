@@ -7,7 +7,6 @@ Configured via Pydantic BaseSettings (pydantic-settings).
 Conforms to Python Clean Code standards (zedr/clean-code-python).
 """
 
-from dataclasses import dataclass
 import datetime
 import logging
 from pathlib import Path
@@ -27,8 +26,8 @@ try:
         LOG_FORMAT,
         STOCK_CONFIGS,
         YFINANCE_INTERVAL,
-        StockConfig,
     )
+    from models import StockConfig, StockResult, StockTask
 except ImportError:
     from threading_multiprocessing.consts import (
         BASE_DIR,
@@ -37,8 +36,8 @@ except ImportError:
         LOG_FORMAT,
         STOCK_CONFIGS,
         YFINANCE_INTERVAL,
-        StockConfig,
     )
+    from threading_multiprocessing.models import StockConfig, StockResult, StockTask
 
 logger = logging.getLogger(__name__)
 
@@ -62,29 +61,6 @@ class Settings(BaseSettings):
     def resolve_relative_path(cls, file_path: Path) -> Path:
         """Converts relative paths to absolute paths resolved against BASE_DIR."""
         return file_path if file_path.is_absolute() else BASE_DIR / file_path
-
-
-@dataclass(frozen=True)
-class StockTask:
-    """A single stock data-mining task."""
-    timestamp: str
-    stock: StockConfig
-
-
-@dataclass(frozen=True)
-class StockResult:
-    """The result of an hourly stock price change calculation."""
-    hour: str
-    stock_type: str
-    percentage_change: float | None
-
-    def to_csv_dict(self) -> dict[str, str | float | None]:
-        """Formats the result dictionary to match requested CSV column names."""
-        return {
-            "hour": self.hour,
-            "stock type": self.stock_type,
-            "percentage change": self.percentage_change,
-        }
 
 
 def configure_environment() -> None:
