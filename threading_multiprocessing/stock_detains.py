@@ -7,11 +7,11 @@ Configured via Pydantic BaseSettings (pydantic-settings).
 Conforms to Python Clean Code standards (zedr/clean-code-python).
 """
 
-import datetime
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Sequence
+from typing import List, Sequence, Tuple
 
 import pandas as pd
 from pydantic import ValidationError
@@ -61,7 +61,7 @@ def load_tasks_for_stock(stock: StockConfig) -> List[StockTask]:
     """Loads timestamps for a specific stock directly from its configured dates file."""
     timestamps = read_timestamps(stock.dates_file)
     return [
-        StockTask(timestamp=datetime.datetime.fromisoformat(timestamp), stock=stock)
+        StockTask(timestamp=datetime.fromisoformat(timestamp), stock=stock)
         for timestamp in timestamps
     ]
 
@@ -81,12 +81,18 @@ def calculate_percentage_change(open_price: float, close_price: float) -> float:
     return ((close_price - open_price) / open_price) * 100
 
 
+def calculate_time_window(timestamp: datetime) -> Tuple[datetime, datetime]:
+    """Calculates the 1-hour window (start and end times) for a given timestamp."""
+    start_time = timestamp.replace(second=0, microsecond=0)
+    end_time = start_time + timedelta(hours=1)
+    return start_time, end_time
+
+
 def fetch_stock_data(task: StockTask) -> StockResult:
     """
     Fetches the 1-hour candle for a stock at the given timestamp and computes percentage change.
     """
-    start_time = task.timestamp.replace(second=0, microsecond=0)
-    end_time = start_time + datetime.timedelta(hours=1)
+    start_time, end_time = calculate_time_window(task.timestamp)
 
     ticker = yf.Ticker(task.stock.ticker)
     history_data = ticker.history(
@@ -141,13 +147,13 @@ def execute_parallel_fetching(
 
 def save_results(results: Sequence[StockResult], destination_file: Path) -> None:
     """Saves results list to a CSV file using pandas."""
-    if not results:
+    if results:
+        formatted_rows = [result.to_csv_dict() for result in results]
+        data_frame = pd.DataFrame(formatted_rows)
+        data_frame.to_csv(destination_file, index=False)
+        logger.info("Successfully saved %d rows to %s", len(results), destination_file)
+    else:
         logger.warning("No results to save.")
-        return
-    formatted_rows = [result.to_csv_dict() for result in results]
-    data_frame = pd.DataFrame(formatted_rows)
-    data_frame.to_csv(destination_file, index=False)
-    logger.info("Successfully saved %d rows to %s", len(results), destination_file)
 
 
 def main() -> None:
