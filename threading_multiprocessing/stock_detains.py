@@ -1,3 +1,12 @@
+"""
+Stock Price Mining Exercise - Multithreading.
+
+Fetches hourly stock data for configured stock types (Bitcoin, Google, Amazon)
+using yfinance and computes percentage change concurrently.
+Configured via Pydantic BaseSettings (pydantic-settings).
+Conforms to Python Clean Code standards (zedr/clean-code-python).
+"""
+
 from dataclasses import dataclass
 import datetime
 import logging
@@ -10,7 +19,27 @@ from pydantic import AliasChoices, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import yfinance as yf
 
-BASE_DIR = Path(__file__).resolve().parent
+try:
+    from consts import (
+        BASE_DIR,
+        DEFAULT_MAX_WORKERS,
+        LOG_DATE_FORMAT,
+        LOG_FORMAT,
+        STOCK_CONFIGS,
+        YFINANCE_INTERVAL,
+        StockConfig,
+    )
+except ImportError:
+    from threading_multiprocessing.consts import (
+        BASE_DIR,
+        DEFAULT_MAX_WORKERS,
+        LOG_DATE_FORMAT,
+        LOG_FORMAT,
+        STOCK_CONFIGS,
+        YFINANCE_INTERVAL,
+        StockConfig,
+    )
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,28 +55,13 @@ class Settings(BaseSettings):
     google_dates: Path = Field(validation_alias=AliasChoices("GOOGLE_DATES"))
     amazon_dates: Path = Field(validation_alias=AliasChoices("AMAZON_DATES"))
     destination_file: Path = Field(validation_alias=AliasChoices("DESTINATION_FILE"))
-    max_workers: int = Field(default=10, validation_alias=AliasChoices("MAX_WORKERS"))
+    max_workers: int = Field(default=DEFAULT_MAX_WORKERS, validation_alias=AliasChoices("MAX_WORKERS"))
 
     @field_validator("bitcoin_dates", "google_dates", "amazon_dates", "destination_file", mode="after")
     @classmethod
     def resolve_relative_path(cls, file_path: Path) -> Path:
         """Converts relative paths to absolute paths resolved against BASE_DIR."""
         return file_path if file_path.is_absolute() else BASE_DIR / file_path
-
-
-@dataclass(frozen=True)
-class StockConfig:
-    """Configuration mapping a stock name to its ticker and settings attribute."""
-    name: str
-    ticker: str
-    settings_attribute: str
-
-
-STOCK_CONFIGS: tuple[StockConfig, ...] = (
-    StockConfig(name="Bitcoin", ticker="BTC-USD", settings_attribute="bitcoin_dates"),
-    StockConfig(name="Google", ticker="GOOGL", settings_attribute="google_dates"),
-    StockConfig(name="Amazon", ticker="AMZN", settings_attribute="amazon_dates"),
-)
 
 
 @dataclass(frozen=True)
@@ -77,8 +91,8 @@ def configure_environment() -> None:
     """Sets up global logging configuration and silences external warning noise."""
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        format=LOG_FORMAT,
+        datefmt=LOG_DATE_FORMAT,
     )
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
@@ -122,7 +136,12 @@ def fetch_stock_data(task: StockTask) -> StockResult:
     end_time = start_time + datetime.timedelta(hours=1)
 
     ticker = yf.Ticker(task.stock.ticker)
-    history_data = ticker.history(start=start_time, end=end_time, interval="1h", prepost=True)
+    history_data = ticker.history(
+        start=start_time,
+        end=end_time,
+        interval=YFINANCE_INTERVAL,
+        prepost=True,
+    )
 
     if history_data.empty:
         return StockResult(
@@ -144,7 +163,7 @@ def fetch_stock_data(task: StockTask) -> StockResult:
 
 def execute_parallel_fetching(
     tasks: list[StockTask], 
-    max_workers: int = 10
+    max_workers: int = DEFAULT_MAX_WORKERS
 ) -> list[StockResult]:
     """Fetches stock data in parallel using a ThreadPoolExecutor."""
     results = []
