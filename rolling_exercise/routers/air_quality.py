@@ -1,9 +1,9 @@
 """Endpoints for air quality measurements, ingestion, and analytics."""
 
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -78,10 +78,11 @@ def upload_air_quality_data(
     summary="Retrieve air quality data for a date range",
 )
 def get_air_quality_data(
-    start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
 ) -> list[AirQualityRecord]:
+
     """Retrieve air quality data within an optional date range."""
     if start_date and end_date and start_date > end_date:
         raise HTTPException(

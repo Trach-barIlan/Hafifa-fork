@@ -1,8 +1,8 @@
 """Pydantic schemas for request validation and response serialization."""
 
 from datetime import date
-from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
+
 
 
 
@@ -25,12 +25,13 @@ class AlertResponse(BaseModel):
     """Schema representing a high pollution alert."""
 
     id: int
-    record_id: Optional[int] = None
+    record_id: int | None = None
     date: date
     city: str
     aqi: float
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 

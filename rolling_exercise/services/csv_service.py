@@ -4,7 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from io import BytesIO, StringIO
-from typing import Any, BinaryIO, TextIO, Union
+from typing import Any, BinaryIO, TextIO
+
 
 import pandas as pd
 from sqlalchemy import select
@@ -57,7 +58,8 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _validate_and_parse_row(
     row_idx: int,
     row: Mapping[str, Any],
-) -> Union[tuple[date, str, float, float, float], None]:
+) -> tuple[date, str, float, float, float] | None:
+
     """Validate a single row of air quality data.
 
     Logs a warning and returns None if the row contains missing or corrupted values.
@@ -145,9 +147,10 @@ def _validate_and_parse_row(
 
 
 def process_air_quality_csv(
-    file_content: Union[str, bytes, BinaryIO, TextIO],
+    file_content: str | bytes | BinaryIO | TextIO,
     db: Session,
 ) -> IngestionResult:
+
     """Read, clean, calculate AQI, and store records from a CSV file.
 
     Corrupted or missing rows are logged and ignored.

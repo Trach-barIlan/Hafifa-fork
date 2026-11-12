@@ -1,7 +1,6 @@
 """Endpoints for retrieving high pollution alerts."""
 
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -20,10 +19,11 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
     summary="Retrieve all alerts (with optional date and city filters)",
 )
 def get_all_alerts(
-    alert_date: Optional[date] = Query(None, alias="date", description="Filter by date (YYYY-MM-DD)"),
-    city: Optional[str] = Query(None, description="Filter by city name"),
+    alert_date: date | None = Query(None, alias="date", description="Filter by date (YYYY-MM-DD)"),
+    city: str | None = Query(None, description="Filter by city name"),
     db: Session = Depends(get_db),
 ) -> list[Alert]:
+
     """Retrieve all high-pollution alerts, optionally filtered by date and/or city."""
     stmt = select(Alert)
 

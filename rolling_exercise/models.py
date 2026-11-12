@@ -1,7 +1,8 @@
 """SQLAlchemy ORM models for air quality measurements and alerts."""
 
+from __future__ import annotations
+
 from datetime import date
-from typing import Optional
 from sqlalchemy import Date, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,7 +23,7 @@ class AirQualityRecord(Base):
     aqi: Mapped[float] = mapped_column(Float, nullable=False, index=True)
     aqi_level: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    alerts: Mapped[list["Alert"]] = relationship(
+    alerts: Mapped[list[Alert]] = relationship(
         "Alert",
         back_populates="record",
         cascade="all, delete-orphan",
@@ -46,7 +47,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    record_id: Mapped[Optional[int]] = mapped_column(
+    record_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("air_quality_records.id", ondelete="CASCADE"),
         nullable=True,
@@ -56,7 +57,7 @@ class Alert(Base):
     city: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     aqi: Mapped[float] = mapped_column(Float, nullable=False)
 
-    record: Mapped[Optional["AirQualityRecord"]] = relationship(
+    record: Mapped[AirQualityRecord | None] = relationship(
         "AirQualityRecord",
         back_populates="alerts",
     )
