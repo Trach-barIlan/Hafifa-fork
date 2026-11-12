@@ -126,3 +126,36 @@ def test_alerts_endpoints(client: TestClient, sample_corrupted_csv: str):
     city_alerts = client.get("/alerts/by_city", params={"city": "Netanya"})
     assert city_alerts.status_code == 200
     assert len(city_alerts.json()) == 1
+
+
+def test_inverted_date_range(client: TestClient):
+    """Test passing start_date > end_date returns 400."""
+    res = client.get(
+        "/air_quality_data",
+        params={"start_date": "2024-11-25", "end_date": "2024-11-20"},
+    )
+    assert res.status_code == 400
+    assert "start_date cannot be later than end_date" in res.json()["detail"]
+
+
+def test_best_cities_returns_distinct_cities(client: TestClient):
+    """Test best cities returns distinct cities even if one city has multiple top readings."""
+    csv_data = (
+        "date,city,PM2.5,NO2,CO2\n"
+        "2024-11-20,CityA,5.0,10.0,2.0\n"
+        "2024-11-21,CityA,6.0,11.0,2.0\n"
+        "2024-11-22,CityA,7.0,12.0,2.0\n"
+        "2024-11-20,CityB,15.0,20.0,4.0\n"
+        "2024-11-20,CityC,25.0,30.0,6.0\n"
+    )
+    client.post(
+        "/air_quality_data",
+        files={"file": ("cities.csv", csv_data.encode("utf-8"), "text/csv")},
+    )
+    res = client.get("/best_cities")
+    assert res.status_code == 200
+    data = res.json()
+    cities = [item["city"] for item in data]
+    assert len(cities) == len(set(cities))
+    assert set(cities) == {"CityA", "CityB", "CityC"}
+

@@ -47,3 +47,27 @@ def test_missing_required_columns(db_session: Session):
 
     with pytest.raises(ValueError, match="CSV is missing required columns"):
         process_air_quality_csv(invalid_csv, db_session)
+
+
+def test_duplicate_reupload_upsert(db_session: Session, sample_valid_csv: str):
+    """Test re-uploading the same CSV updates records without duplicate key errors."""
+    res1 = process_air_quality_csv(sample_valid_csv, db_session)
+    assert res1.valid_rows == 3
+
+    # Uploading the exact same data again should succeed and not create duplicate records
+    res2 = process_air_quality_csv(sample_valid_csv, db_session)
+    assert res2.valid_rows == 3
+
+    total_records = db_session.query(AirQualityRecord).count()
+    assert total_records == 3  # No duplicates created
+
+
+def test_alert_has_record_foreign_key(db_session: Session, sample_corrupted_csv: str):
+    """Test alert properly links to parent AirQualityRecord via foreign key."""
+    process_air_quality_csv(sample_corrupted_csv, db_session)
+    alert = db_session.query(Alert).first()
+    assert alert is not None
+    assert alert.record_id is not None
+    assert alert.record is not None
+    assert alert.record.city == alert.city
+

@@ -1,7 +1,9 @@
 """Centralized logging configuration for the Air Quality application."""
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
 
 from config import settings
 
@@ -31,11 +33,17 @@ def setup_logger(name: str = "air_quality_api") -> logging.Logger:
 
         formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
 
-        # File Handler (for government audit requirements)
-        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        # Rotating File Handler (for preventing unbounded space usage, max 5MB with 5 backups)
+        file_handler = RotatingFileHandler(
+            LOG_FILE,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
+
 
         # Console Handler (for dev output)
         console_handler = logging.StreamHandler()

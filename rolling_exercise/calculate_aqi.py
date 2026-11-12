@@ -47,6 +47,9 @@ def calculate_aqi(pm25, no2, co2):
         (500, "Hazardous")
     ]
 
-    aqi_level = next(level for threshold, level in aqi_thresholds if overall_aqi <= threshold)
+    aqi_level = next(
+        (level for threshold, level in aqi_thresholds if overall_aqi <= threshold),
+        "Hazardous",
+    )
 
     return overall_aqi, aqi_level

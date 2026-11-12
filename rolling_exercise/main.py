@@ -61,3 +61,4 @@ if __name__ == "__main__":
         reload=settings.debug,
     )
 
+# run app with uvicorn --reload main:app or just python3 main.py
