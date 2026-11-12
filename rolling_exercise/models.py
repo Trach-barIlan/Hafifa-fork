@@ -62,6 +62,11 @@ class Alert(Base):
         back_populates="alerts",
     )
 
+    __table_args__ = (
+        Index("idx_alerts_city_date", "city", "date"),
+        UniqueConstraint("city", "date", name="uq_alert_city_date"),
+    )
+
     def __repr__(self) -> str:
         return (
             f"<Alert(id={self.id}, record_id={self.record_id}, "

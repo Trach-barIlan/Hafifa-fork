@@ -68,8 +68,9 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     assert len(city_res.json()) == 1
     assert city_res.json()[0]["city"] == "Haifa"
 
-    not_found_res = client.get("/air_quality_data/city", params={"city": "Atlantis"})
-    assert not_found_res.status_code == 404
+    empty_city_res = client.get("/air_quality_data/city", params={"city": "Atlantis"})
+    assert empty_city_res.status_code == 200
+    assert empty_city_res.json() == []
 
     # 5. GET city AQI history
     history_res = client.get("/city_aqi_history", params={"city": "Haifa"})
@@ -78,6 +79,10 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     assert history_json["city"] == "Haifa"
     assert len(history_json["history"]) == 1
 
+    empty_history_res = client.get("/city_aqi_history", params={"city": "Atlantis"})
+    assert empty_history_res.status_code == 200
+    assert empty_history_res.json()["history"] == []
+
     # 6. GET city AQI average
     avg_res = client.get("/city_aqi_average", params={"city": "Haifa"})
     assert avg_res.status_code == 200
@@ -85,6 +90,9 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     assert avg_json["city"] == "Haifa"
     assert avg_json["reading_count"] == 1
     assert isinstance(avg_json["average_aqi"], float)
+
+    avg_not_found = client.get("/city_aqi_average", params={"city": "Atlantis"})
+    assert avg_not_found.status_code == 404
 
     # 7. GET best cities (lowest 3 AQI)
     best_res = client.get("/best_cities")

@@ -1,6 +1,7 @@
 """Endpoints for air quality measurements, ingestion, and analytics."""
 
 from datetime import date
+from logging import log
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
@@ -41,6 +42,7 @@ def upload_air_quality_data(
             detail="Invalid file format. Please upload a valid .csv file.",
         )
 
+    logger.info("Processing upload request for file: %s", file.filename)
     try:
         content = file.file.read()
         if not content:
@@ -82,8 +84,8 @@ def get_air_quality_data(
     end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
 ) -> list[AirQualityRecord]:
-
     """Retrieve air quality data within an optional date range."""
+    logger.info("Retrieving air quality data for range: start_date=%s, end_date=%s", start_date, end_date)
     if start_date and end_date and start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -117,6 +119,7 @@ def get_air_quality_data_by_city(
     db: Session = Depends(get_db),
 ) -> list[AirQualityRecord]:
     """Retrieve all air quality records for a specific city."""
+    logger.info("Retrieving air quality records for city: %s", city)
     stmt = (
         select(AirQualityRecord)
         .where(func.lower(AirQualityRecord.city) == city.strip().lower())
@@ -124,10 +127,7 @@ def get_air_quality_data_by_city(
     )
     records = db.scalars(stmt).all()
     if not records:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No air quality records found for city '{city}'.",
-        )
+        logger.info("No records found for city '%s'", city)
     return list(records)
 
 
@@ -141,6 +141,7 @@ def get_city_aqi_history(
     db: Session = Depends(get_db),
 ) -> CityHistoryResponse:
     """Retrieve historical AQI timeline for a specific city."""
+    logger.info("Retrieving AQI history for city: %s", city)
     stmt = (
         select(AirQualityRecord)
         .where(func.lower(AirQualityRecord.city) == city.strip().lower())
@@ -148,16 +149,14 @@ def get_city_aqi_history(
     )
     records = db.scalars(stmt).all()
     if not records:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No AQI history found for city '{city}'.",
-        )
+        logger.info("No AQI history found for city '%s'", city)
 
     history = [
         CityHistoryItem(date=rec.date, aqi=rec.aqi, aqi_level=rec.aqi_level)
         for rec in records
     ]
-    return CityHistoryResponse(city=records[0].city, history=history)
+    city_name = records[0].city if records else city.strip()
+    return CityHistoryResponse(city=city_name, history=history)
 
 
 @router.get(
@@ -170,6 +169,7 @@ def get_city_aqi_average(
     db: Session = Depends(get_db),
 ) -> CityAverageResponse:
     """Calculate and return the average AQI value for a specific city."""
+    logger.info("Calculating AQI average for city: %s", city)
     stmt = select(
         func.avg(AirQualityRecord.aqi).label("avg_aqi"),
         func.count(AirQualityRecord.id).label("record_count"),
@@ -199,6 +199,7 @@ def get_best_cities(
     db: Session = Depends(get_db),
 ) -> list[BestCityItem]:
     """Retrieve 3 cities with the best air quality based on their most recent reading."""
+    logger.info("Retrieving top 3 cities with the best AQI based on most recent reading")
     # Subquery to find the most recent date for each city
     subq = (
         select(

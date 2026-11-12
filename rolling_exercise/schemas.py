@@ -4,8 +4,6 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field
 
 
-
-
 class AirQualityRecordResponse(BaseModel):
     """Schema representing an air quality database record."""
 
@@ -31,8 +29,6 @@ class AlertResponse(BaseModel):
     aqi: float
 
     model_config = ConfigDict(from_attributes=True)
-
-
 
 
 class CityAverageResponse(BaseModel):

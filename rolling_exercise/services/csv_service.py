@@ -6,7 +6,6 @@ from datetime import date
 from io import BytesIO, StringIO
 from typing import Any, BinaryIO, TextIO
 
-
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +37,169 @@ class IngestionResult:
     alerts_generated: int
 
 
+def process_air_quality_csv(
+    file_content: str | bytes | BinaryIO | TextIO,
+    db: Session,
+) -> IngestionResult:
+    """Read, clean, calculate AQI, and store records from a CSV file.
+
+    Corrupted or missing rows are logged and ignored.
+    If calculated AQI > 300, an Alert record is created and linked via foreign key.
+    Duplicate (city, date) entries are upserted cleanly.
+
+    Args:
+        file_content: File path, bytes, or file-like stream of the CSV.
+        db: Active SQLAlchemy database session.
+
+    Returns:
+        IngestionResult: Summary counts of processed records.
+
+    Raises:
+        ValueError: If file content is empty or cannot be parsed as CSV.
+    """
+    logger.info("Beginning air quality CSV data ingestion.")
+
+    try:
+        if isinstance(file_content, bytes):
+            stream = BytesIO(file_content)
+            df = pd.read_csv(stream)
+        elif isinstance(file_content, str):
+            if "\n" in file_content or "\r" in file_content:
+                stream = StringIO(file_content)
+                df = pd.read_csv(stream)
+            else:
+                df = pd.read_csv(file_content)
+        else:
+            df = pd.read_csv(file_content)
+    except Exception as exc:
+        logger.error("Failed to parse CSV file: %s", exc)
+        raise ValueError(f"Could not parse CSV content: {exc}") from exc
+
+    df = _normalize_columns(df)
+    required_columns = {"date", "city", "pm25", "no2", "co2"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        err_msg = f"CSV is missing required columns: {sorted(missing_columns)}"
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+
+    total_rows = len(df)
+    valid_count = 0
+    alerts_generated_count = 0
+
+    rows_data = df.to_dict(orient="records")
+
+    # Validate and parse all rows in memory
+    valid_parsed_rows: list[tuple[date, str, float, float, float]] = []
+    for idx, row in enumerate(rows_data):
+        validated_data = _validate_and_parse_row(idx, row)
+        if validated_data is not None:
+            valid_parsed_rows.append(validated_data)
+
+    if not valid_parsed_rows:
+        return IngestionResult(
+            total_rows=total_rows,
+            valid_rows=0,
+            corrupted_rows=total_rows,
+            alerts_generated=0,
+        )
+
+    # Batch-load existing records and alerts in 2 queries
+    distinct_dates = {rec[0] for rec in valid_parsed_rows}
+    existing_records = {
+        (rec.city.lower(), rec.date): rec
+        for rec in db.scalars(
+            select(AirQualityRecord).where(AirQualityRecord.date.in_(distinct_dates))
+        ).all()
+    }
+    existing_alerts = {
+        (alert.city.lower(), alert.date): alert
+        for alert in db.scalars(
+            select(Alert).where(Alert.date.in_(distinct_dates))
+        ).all()
+    }
+
+    for record_date, city, pm25, no2, co2 in valid_parsed_rows:
+        valid_count += 1
+        key = (city.lower(), record_date)
+
+        # Calculate AQI and AQI level
+        aqi_value, aqi_level = calculate_aqi(pm25, no2, co2)
+        logger.info(
+            "Calculated AQI for %s on %s: AQI=%.1f (%s)",
+            city,
+            record_date,
+            aqi_value,
+            aqi_level,
+        )
+
+        existing_record = existing_records.get(key)
+        if existing_record:
+            existing_record.pm25 = pm25
+            existing_record.no2 = no2
+            existing_record.co2 = co2
+            existing_record.aqi = aqi_value
+            existing_record.aqi_level = aqi_level
+            target_record = existing_record
+            logger.info("Updated existing record for %s on %s", city, record_date)
+        else:
+            target_record = AirQualityRecord(
+                date=record_date,
+                city=city,
+                pm25=pm25,
+                no2=no2,
+                co2=co2,
+                aqi=aqi_value,
+                aqi_level=aqi_level,
+            )
+            db.add(target_record)
+            existing_records[key] = target_record
+
+        existing_alert = existing_alerts.get(key)
+        if aqi_value > ALERT_AQI_THRESHOLD:
+            logger.warning(
+                "High pollution alert triggered! City: %s, Date: %s, AQI: %.1f",
+                city,
+                record_date,
+                aqi_value,
+            )
+            if existing_alert:
+                existing_alert.aqi = aqi_value
+                existing_alert.record = target_record
+            else:
+                alert = Alert(
+                    record=target_record,
+                    date=record_date,
+                    city=city,
+                    aqi=aqi_value,
+                )
+                db.add(alert)
+                existing_alerts[key] = alert
+                alerts_generated_count += 1
+        elif existing_alert:
+            # If pollution dropped below threshold on update, remove previous alert
+            db.delete(existing_alert)
+            del existing_alerts[key]
+
+    db.commit()
+
+    corrupted_count = total_rows - valid_count
+
+    logger.info(
+        "Ingestion completed: Total=%d, Valid=%d, Corrupted=%d, Alerts=%d",
+        total_rows,
+        valid_count,
+        corrupted_count,
+        alerts_generated_count,
+    )
+
+    return IngestionResult(
+        total_rows=total_rows,
+        valid_rows=valid_count,
+        corrupted_rows=corrupted_count,
+        alerts_generated=alerts_generated_count,
+    )
+
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize DataFrame column names to standard lowercase identifiers in a single pass.
@@ -59,7 +221,6 @@ def _validate_and_parse_row(
     row_idx: int,
     row: Mapping[str, Any],
 ) -> tuple[date, str, float, float, float] | None:
-
     """Validate a single row of air quality data.
 
     Logs a warning and returns None if the row contains missing or corrupted values.
@@ -144,154 +305,3 @@ def _validate_and_parse_row(
         pollutants["no2"],
         pollutants["co2"],
     )
-
-
-def process_air_quality_csv(
-    file_content: str | bytes | BinaryIO | TextIO,
-    db: Session,
-) -> IngestionResult:
-
-    """Read, clean, calculate AQI, and store records from a CSV file.
-
-    Corrupted or missing rows are logged and ignored.
-    If calculated AQI > 300, an Alert record is created and linked via foreign key.
-    Duplicate (city, date) entries are upserted cleanly.
-
-    Args:
-        file_content: File path, bytes, or file-like stream of the CSV.
-        db: Active SQLAlchemy database session.
-
-    Returns:
-        IngestionResult: Summary counts of processed records.
-
-    Raises:
-        ValueError: If file content is empty or cannot be parsed as CSV.
-    """
-    logger.info("Beginning air quality CSV data ingestion.")
-
-    try:
-        if isinstance(file_content, bytes):
-            stream = BytesIO(file_content)
-            df = pd.read_csv(stream)
-        elif isinstance(file_content, str):
-            if "\n" in file_content or "\r" in file_content:
-                stream = StringIO(file_content)
-                df = pd.read_csv(stream)
-            else:
-                df = pd.read_csv(file_content)
-        else:
-            df = pd.read_csv(file_content)
-    except Exception as exc:
-        logger.error("Failed to parse CSV file: %s", exc)
-        raise ValueError(f"Could not parse CSV content: {exc}") from exc
-
-    df = _normalize_columns(df)
-    required_columns = {"date", "city", "pm25", "no2", "co2"}
-    missing_columns = required_columns - set(df.columns)
-    if missing_columns:
-        err_msg = f"CSV is missing required columns: {sorted(missing_columns)}"
-        logger.error(err_msg)
-        raise ValueError(err_msg)
-
-    total_rows = len(df)
-    valid_count = 0
-    alerts_generated_count = 0
-
-    rows_data = df.to_dict(orient="records")
-
-    for idx, row in enumerate(rows_data):
-        validated_data = _validate_and_parse_row(idx, row)
-        if validated_data is None:
-            continue
-
-        record_date, city, pm25, no2, co2 = validated_data
-        valid_count += 1
-
-        # Calculate AQI and AQI level
-        aqi_value, aqi_level = calculate_aqi(pm25, no2, co2)
-        logger.info(
-            "Calculated AQI for %s on %s: AQI=%.1f (%s)",
-            city,
-            record_date,
-            aqi_value,
-            aqi_level,
-        )
-
-        # Upsert: check if a record for (city, date) already exists
-        stmt = select(AirQualityRecord).where(
-            AirQualityRecord.city == city,
-            AirQualityRecord.date == record_date,
-        )
-        existing_record = db.scalars(stmt).one_or_none()
-
-        if existing_record:
-            existing_record.pm25 = pm25
-            existing_record.no2 = no2
-            existing_record.co2 = co2
-            existing_record.aqi = aqi_value
-            existing_record.aqi_level = aqi_level
-            target_record = existing_record
-            logger.info("Updated existing record for %s on %s", city, record_date)
-        else:
-            target_record = AirQualityRecord(
-                date=record_date,
-                city=city,
-                pm25=pm25,
-                no2=no2,
-                co2=co2,
-                aqi=aqi_value,
-                aqi_level=aqi_level,
-            )
-            db.add(target_record)
-            # Flush so target_record.id is generated for foreign key linking
-            db.flush()
-
-        # Handle Alert creation or update
-        alert_stmt = select(Alert).where(
-            Alert.city == city,
-            Alert.date == record_date,
-        )
-        existing_alert = db.scalars(alert_stmt).one_or_none()
-
-        if aqi_value > ALERT_AQI_THRESHOLD:
-            logger.warning(
-                "High pollution alert triggered! City: %s, Date: %s, AQI: %.1f",
-                city,
-                record_date,
-                aqi_value,
-            )
-            if existing_alert:
-                existing_alert.aqi = aqi_value
-                existing_alert.record = target_record
-            else:
-                alert = Alert(
-                    record=target_record,
-                    date=record_date,
-                    city=city,
-                    aqi=aqi_value,
-                )
-                db.add(alert)
-                alerts_generated_count += 1
-        elif existing_alert:
-            # If pollution dropped below threshold on update, remove previous alert
-            db.delete(existing_alert)
-
-    db.commit()
-
-    corrupted_count = total_rows - valid_count
-
-    logger.info(
-        "Ingestion completed: Total=%d, Valid=%d, Corrupted=%d, Alerts=%d",
-        total_rows,
-        valid_count,
-        corrupted_count,
-        alerts_generated_count,
-    )
-
-    return IngestionResult(
-        total_rows=total_rows,
-        valid_rows=valid_count,
-        corrupted_rows=corrupted_count,
-        alerts_generated=alerts_generated_count,
-    )
-

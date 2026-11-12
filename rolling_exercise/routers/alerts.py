@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from database import get_db
+from logging_config import logger
 from models import Alert
 from schemas import AlertResponse
 
@@ -23,8 +24,8 @@ def get_all_alerts(
     city: str | None = Query(None, description="Filter by city name"),
     db: Session = Depends(get_db),
 ) -> list[Alert]:
-
     """Retrieve all high-pollution alerts, optionally filtered by date and/or city."""
+    logger.info("Retrieving all alerts: alert_date=%s, city=%s", alert_date, city)
     stmt = select(Alert)
 
     if alert_date:
@@ -47,9 +48,8 @@ def get_alerts_by_date(
     db: Session = Depends(get_db),
 ) -> list[Alert]:
     """Retrieve all alerts registered for a specific date."""
-    stmt = select(Alert).where(Alert.date == alert_date).order_by(Alert.city.asc())
-    alerts = db.scalars(stmt).all()
-    return list(alerts)
+    logger.info("Retrieving alerts for date: %s", alert_date)
+    return get_all_alerts(alert_date=alert_date, city=None, db=db)
 
 
 @router.get(
@@ -62,10 +62,5 @@ def get_alerts_by_city(
     db: Session = Depends(get_db),
 ) -> list[Alert]:
     """Retrieve all alerts registered for a specific city."""
-    stmt = (
-        select(Alert)
-        .where(func.lower(Alert.city) == city.strip().lower())
-        .order_by(Alert.date.desc())
-    )
-    alerts = db.scalars(stmt).all()
-    return list(alerts)
+    logger.info("Retrieving alerts for city: %s", city)
+    return get_all_alerts(alert_date=None, city=city, db=db)

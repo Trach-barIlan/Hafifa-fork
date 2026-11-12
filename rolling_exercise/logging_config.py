@@ -44,7 +44,6 @@ def setup_logger(name: str = "air_quality_api") -> logging.Logger:
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-
         # Console Handler (for dev output)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(level)

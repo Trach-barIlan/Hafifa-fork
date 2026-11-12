@@ -1,6 +1,9 @@
 """Unit tests for CSV ingestion and row validation."""
 
+from datetime import date
+
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models import AirQualityRecord, Alert
@@ -70,4 +73,44 @@ def test_alert_has_record_foreign_key(db_session: Session, sample_corrupted_csv:
     assert alert.record_id is not None
     assert alert.record is not None
     assert alert.record.city == alert.city
+
+
+def test_alert_threshold_boundary(db_session: Session):
+    """Verify that AQI <= 300 does not trigger an alert, but AQI > 300 does."""
+    # Row 1: PM25=250.4, NO2=53.0, CO2=5.0 -> sub-indices <= 300
+    # Row 2: PM25=250.5, NO2=53.0, CO2=5.0 -> PM25 enters 301-500 bracket -> AQI > 300
+    csv_content = (
+        "date,city,PM2.5,NO2,CO2\n"
+        "2024-11-20,CityBelow,250.4,53.0,5.0\n"
+        "2024-11-20,CityAbove,250.6,53.0,5.0\n"
+    )
+    result = process_air_quality_csv(csv_content, db_session)
+    assert result.valid_rows == 2
+    assert result.alerts_generated == 1
+
+    alerts = db_session.query(Alert).all()
+    assert len(alerts) == 1
+    assert alerts[0].city == "CityAbove"
+    assert alerts[0].aqi > 300
+
+
+def test_alert_unique_constraint(db_session: Session):
+    """Verify that Alert table enforces UniqueConstraint on (city, date)."""
+    alert1 = Alert(
+        city="Haifa",
+        date=date(2024, 11, 20),
+        aqi=350.0,
+    )
+    db_session.add(alert1)
+    db_session.commit()
+
+    alert2 = Alert(
+        city="Haifa",
+        date=date(2024, 11, 20),
+        aqi=400.0,
+    )
+    db_session.add(alert2)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
 
