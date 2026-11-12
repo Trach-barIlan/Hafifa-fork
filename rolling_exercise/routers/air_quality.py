@@ -83,6 +83,12 @@ def get_air_quality_data(
     db: Session = Depends(get_db),
 ) -> list[AirQualityRecord]:
     """Retrieve air quality data within an optional date range."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be later than end_date.",
+        )
+
     stmt = select(AirQualityRecord)
 
     if start_date:
@@ -186,18 +192,36 @@ def get_city_aqi_average(
 @router.get(
     "/best_cities",
     response_model=list[BestCityItem],
-    summary="Retrieve top 3 cities with the best (lowest) AQI",
+    summary="Retrieve top 3 cities with the best (lowest) AQI based on their most recent reading",
 )
 def get_best_cities(
     db: Session = Depends(get_db),
 ) -> list[BestCityItem]:
-    """Retrieve 3 city readings with the best air quality (lowest AQI)."""
+    """Retrieve 3 cities with the best air quality based on their most recent reading."""
+    # Subquery to find the most recent date for each city
+    subq = (
+        select(
+            AirQualityRecord.city,
+            func.max(AirQualityRecord.date).label("latest_date"),
+        )
+        .group_by(AirQualityRecord.city)
+        .subquery()
+    )
+
+    # Join back to get each city's most recent record, ordered by lowest AQI
     stmt = (
         select(AirQualityRecord)
-        .order_by(AirQualityRecord.aqi.asc(), AirQualityRecord.date.desc())
+        .join(
+            subq,
+            (AirQualityRecord.city == subq.c.city)
+            & (AirQualityRecord.date == subq.c.latest_date),
+        )
+        .order_by(AirQualityRecord.aqi.asc(), AirQualityRecord.city.asc())
         .limit(3)
     )
+
     records = db.scalars(stmt).all()
+
     return [
         BestCityItem(
             city=rec.city,
@@ -207,3 +231,5 @@ def get_best_cities(
         )
         for rec in records
     ]
+
+

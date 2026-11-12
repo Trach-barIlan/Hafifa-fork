@@ -159,3 +159,8 @@ def test_best_cities_returns_distinct_cities(client: TestClient):
     assert len(cities) == len(set(cities))
     assert set(cities) == {"CityA", "CityB", "CityC"}
 
+    # Verify that CityA's reading is its MOST RECENT date (2024-11-22)
+    city_a_record = next(item for item in data if item["city"] == "CityA")
+    assert city_a_record["date"] == "2024-11-22"
+
+

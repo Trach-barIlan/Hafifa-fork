@@ -34,7 +34,8 @@ class IngestionResult:
     total_rows: int
     valid_rows: int
     corrupted_rows: int
-    alerts_generated_count: int
+    alerts_generated: int
+
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -288,5 +289,6 @@ def process_air_quality_csv(
         total_rows=total_rows,
         valid_rows=valid_count,
         corrupted_rows=corrupted_count,
-        alerts_generated_count=alerts_generated_count,
+        alerts_generated=alerts_generated_count,
     )
+
