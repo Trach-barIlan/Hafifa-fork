@@ -25,7 +25,7 @@ def get_all_alerts(
     db: Session = Depends(get_db),
 ) -> list[Alert]:
     """Retrieve all high-pollution alerts, optionally filtered by date and/or city."""
-    logger.info("Retrieving all alerts: alert_date=%s, city=%s", alert_date, city)
+    logger.info(f"Retrieving all alerts: alert_date={alert_date}, city={city}")
     stmt = select(Alert)
 
     if alert_date:
@@ -48,7 +48,7 @@ def get_alerts_by_date(
     db: Session = Depends(get_db),
 ) -> list[Alert]:
     """Retrieve all alerts registered for a specific date."""
-    logger.info("Retrieving alerts for date: %s", alert_date)
+    logger.info(f"Retrieving alerts for date: {alert_date}")
     return get_all_alerts(alert_date=alert_date, city=None, db=db)
 
 
@@ -62,5 +62,5 @@ def get_alerts_by_city(
     db: Session = Depends(get_db),
 ) -> list[Alert]:
     """Retrieve all alerts registered for a specific city."""
-    logger.info("Retrieving alerts for city: %s", city)
+    logger.info(f"Retrieving alerts for city: {city}")
     return get_all_alerts(alert_date=None, city=city, db=db)

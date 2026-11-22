@@ -36,13 +36,13 @@ def upload_air_quality_data(
 ) -> UploadResponse:
     """Upload air quality CSV data, validate rows, compute AQI, and store in DB."""
     if not file.filename or not file.filename.lower().endswith(".csv"):
-        logger.error("Rejected non-CSV upload attempt: %s", file.filename)
+        logger.error(f"Rejected non-CSV upload attempt: {file.filename}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file format. Please upload a valid .csv file.",
         )
 
-    logger.info("Processing upload request for file: %s", file.filename)
+    logger.info(f"Processing upload request for file: {file.filename}")
     try:
         content = file.file.read()
         if not content:
@@ -67,7 +67,7 @@ def upload_air_quality_data(
             detail=str(exc),
         ) from exc
     except Exception as exc:
-        logger.exception("Unexpected error processing upload: %s", exc)
+        logger.exception(f"Unexpected error processing upload: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while processing the CSV file.",
@@ -85,7 +85,7 @@ def get_air_quality_data(
     db: Session = Depends(get_db),
 ) -> list[AirQualityRecord]:
     """Retrieve air quality data within an optional date range."""
-    logger.info("Retrieving air quality data for range: start_date=%s, end_date=%s", start_date, end_date)
+    logger.info(f"Retrieving air quality data for range: start_date={start_date}, end_date={end_date}")
     if start_date and end_date and start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -119,7 +119,7 @@ def get_air_quality_data_by_city(
     db: Session = Depends(get_db),
 ) -> list[AirQualityRecord]:
     """Retrieve all air quality records for a specific city."""
-    logger.info("Retrieving air quality records for city: %s", city)
+    logger.info(f"Retrieving air quality records for city: {city}")
     stmt = (
         select(AirQualityRecord)
         .where(func.lower(AirQualityRecord.city) == city.strip().lower())
@@ -127,7 +127,7 @@ def get_air_quality_data_by_city(
     )
     records = db.scalars(stmt).all()
     if not records:
-        logger.info("No records found for city '%s'", city)
+        logger.info(f"No records found for city '{city}'")
     return list(records)
 
 
@@ -141,7 +141,7 @@ def get_city_aqi_history(
     db: Session = Depends(get_db),
 ) -> CityHistoryResponse:
     """Retrieve historical AQI timeline for a specific city."""
-    logger.info("Retrieving AQI history for city: %s", city)
+    logger.info(f"Retrieving AQI history for city: {city}")
     stmt = (
         select(AirQualityRecord)
         .where(func.lower(AirQualityRecord.city) == city.strip().lower())
@@ -149,7 +149,7 @@ def get_city_aqi_history(
     )
     records = db.scalars(stmt).all()
     if not records:
-        logger.info("No AQI history found for city '%s'", city)
+        logger.info(f"No AQI history found for city '{city}'")
 
     history = [
         CityHistoryItem(date=rec.date, aqi=rec.aqi, aqi_level=rec.aqi_level)
@@ -169,7 +169,7 @@ def get_city_aqi_average(
     db: Session = Depends(get_db),
 ) -> CityAverageResponse:
     """Calculate and return the average AQI value for a specific city."""
-    logger.info("Calculating AQI average for city: %s", city)
+    logger.info(f"Calculating AQI average for city: {city}")
     stmt = select(
         func.avg(AirQualityRecord.aqi).label("avg_aqi"),
         func.count(AirQualityRecord.id).label("record_count"),

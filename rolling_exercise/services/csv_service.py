@@ -72,7 +72,7 @@ def process_air_quality_csv(
         else:
             df = pd.read_csv(file_content)
     except Exception as exc:
-        logger.error("Failed to parse CSV file: %s", exc)
+        logger.error(f"Failed to parse CSV file: {exc}")
         raise ValueError(f"Could not parse CSV content: {exc}") from exc
 
     df = _normalize_columns(df)
@@ -126,11 +126,7 @@ def process_air_quality_csv(
         # Calculate AQI and AQI level
         aqi_value, aqi_level = calculate_aqi(pm25, no2, co2)
         logger.info(
-            "Calculated AQI for %s on %s: AQI=%.1f (%s)",
-            city,
-            record_date,
-            aqi_value,
-            aqi_level,
+            f"Calculated AQI for {city} on {record_date}: AQI={aqi_value:.1f} ({aqi_level})"
         )
 
         existing_record = existing_records.get(key)
@@ -141,7 +137,7 @@ def process_air_quality_csv(
             existing_record.aqi = aqi_value
             existing_record.aqi_level = aqi_level
             target_record = existing_record
-            logger.info("Updated existing record for %s on %s", city, record_date)
+            logger.info(f"Updated existing record for {city} on {record_date}")
         else:
             target_record = AirQualityRecord(
                 date=record_date,
@@ -158,10 +154,7 @@ def process_air_quality_csv(
         existing_alert = existing_alerts.get(key)
         if aqi_value > ALERT_AQI_THRESHOLD:
             logger.warning(
-                "High pollution alert triggered! City: %s, Date: %s, AQI: %.1f",
-                city,
-                record_date,
-                aqi_value,
+                f"High pollution alert triggered! City: {city}, Date: {record_date}, AQI: {aqi_value:.1f}"
             )
             if existing_alert:
                 existing_alert.aqi = aqi_value
@@ -186,11 +179,7 @@ def process_air_quality_csv(
     corrupted_count = total_rows - valid_count
 
     logger.info(
-        "Ingestion completed: Total=%d, Valid=%d, Corrupted=%d, Alerts=%d",
-        total_rows,
-        valid_count,
-        corrupted_count,
-        alerts_generated_count,
+        f"Ingestion completed: Total={total_rows}, Valid={valid_count}, Corrupted={corrupted_count}, Alerts={alerts_generated_count}"
     )
 
     return IngestionResult(
@@ -238,7 +227,7 @@ def _validate_and_parse_row(
     city_val = row.get("city")
     if pd.isna(city_val) or not str(city_val).strip():
         logger.warning(
-            "Row %d skipped: City name is missing or empty.", human_row_num
+            f"Row {human_row_num} skipped: City name is missing or empty."
         )
         return None
     city = str(city_val).strip()
@@ -246,7 +235,7 @@ def _validate_and_parse_row(
     # Validate date
     date_val = row.get("date")
     if pd.isna(date_val):
-        logger.warning("Row %d skipped: Date is missing.", human_row_num)
+        logger.warning(f"Row {human_row_num} skipped: Date is missing.")
         return None
 
     try:
@@ -255,10 +244,7 @@ def _validate_and_parse_row(
         parsed_date = pd.to_datetime(clean_date_str).date()
     except Exception as exc:
         logger.warning(
-            "Row %d skipped: Invalid date format '%s' (%s).",
-            human_row_num,
-            date_val,
-            exc,
+            f"Row {human_row_num} skipped: Invalid date format '{date_val}' ({exc})."
         )
         return None
 
@@ -268,10 +254,7 @@ def _validate_and_parse_row(
         val = row.get(pollutant_name)
         if pd.isna(val):
             logger.warning(
-                "Row %d (%s) skipped: Missing value for pollutant '%s'.",
-                human_row_num,
-                city,
-                pollutant_name,
+                f"Row {human_row_num} ({city}) skipped: Missing value for pollutant '{pollutant_name}'."
             )
             return None
 
@@ -279,22 +262,13 @@ def _validate_and_parse_row(
             numeric_val = float(val)
             if numeric_val < 0:
                 logger.warning(
-                    "Row %d (%s) skipped: Pollutant '%s' has negative value (%f).",
-                    human_row_num,
-                    city,
-                    pollutant_name,
-                    numeric_val,
+                    f"Row {human_row_num} ({city}) skipped: Pollutant '{pollutant_name}' has negative value ({numeric_val})."
                 )
                 return None
             pollutants[pollutant_name] = numeric_val
         except (ValueError, TypeError) as exc:
             logger.warning(
-                "Row %d (%s) skipped: Non-numeric value '%s' for '%s' (%s).",
-                human_row_num,
-                city,
-                val,
-                pollutant_name,
-                exc,
+                f"Row {human_row_num} ({city}) skipped: Non-numeric value '{val}' for '{pollutant_name}' ({exc})."
             )
             return None
 

@@ -17,9 +17,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager to initialize resources on startup."""
     logger.info("Initializing database tables...")
     init_db()
-    logger.info("%s started successfully.", settings.app_name)
+    logger.info(f"{settings.app_name} started successfully.")
     yield
-    logger.info("%s shutting down.", settings.app_name)
+    logger.info(f"{settings.app_name} shutting down.")
 
 
 app = FastAPI(
