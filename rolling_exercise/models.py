@@ -47,26 +47,33 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     alert_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    record_id: Mapped[int | None] = mapped_column(
+    record_id: Mapped[int] = mapped_column(
         ForeignKey("air_quality_records.record_id", ondelete="CASCADE"),
+        unique=True,
         index=True,
     )
-    date: Mapped[date] = mapped_column(index=True)
-    city: Mapped[str] = mapped_column(String(100), index=True)
-    aqi: Mapped[float] = mapped_column()
 
-    record: Mapped[AirQualityRecord | None] = relationship(
+    record: Mapped[AirQualityRecord] = relationship(
         "AirQualityRecord",
         back_populates="alerts",
+        lazy="joined",
     )
 
-    __table_args__ = (
-        Index("idx_alerts_city_date", "city", "date"),
-        UniqueConstraint("city", "date", name="uq_alert_city_date"),
-    )
+    @property
+    def date(self) -> date | None:
+        return self.record.date if self.record else None
+
+    @property
+    def city(self) -> str | None:
+        return self.record.city if self.record else None
+
+    @property
+    def aqi(self) -> float | None:
+        return self.record.aqi if self.record else None
 
     def __repr__(self) -> str:
+        aqi_str = f"{self.aqi:.1f}" if self.aqi is not None else "None"
         return (
             f"<Alert(alert_id={self.alert_id}, record_id={self.record_id}, "
-            f"city='{self.city}', date={self.date}, aqi={self.aqi:.1f})>"
+            f"city='{self.city}', date={self.date}, aqi={aqi_str})>"
         )

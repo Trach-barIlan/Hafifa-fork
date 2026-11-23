@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from logging_config import logger
-from models import Alert
+from models import AirQualityRecord, Alert
 from schemas import AlertResponse
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
@@ -26,14 +26,14 @@ def get_all_alerts(
 ) -> list[Alert]:
     """Retrieve all high-pollution alerts, optionally filtered by date and/or city."""
     logger.info(f"Retrieving all alerts: alert_date={alert_date}, city={city}")
-    stmt = select(Alert)
+    stmt = select(Alert).join(AirQualityRecord)
 
     if alert_date:
-        stmt = stmt.where(Alert.date == alert_date)
+        stmt = stmt.where(AirQualityRecord.date == alert_date)
     if city:
-        stmt = stmt.where(func.lower(Alert.city) == city.strip().lower())
+        stmt = stmt.where(func.lower(AirQualityRecord.city) == city.strip().lower())
 
-    stmt = stmt.order_by(Alert.date.desc(), Alert.alert_id.desc())
+    stmt = stmt.order_by(AirQualityRecord.date.desc(), Alert.alert_id.desc())
     alerts = db.scalars(stmt).all()
     return list(alerts)
 

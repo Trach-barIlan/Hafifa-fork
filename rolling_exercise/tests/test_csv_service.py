@@ -97,20 +97,28 @@ def test_alert_threshold_boundary(db_session: Session):
 
 
 def test_alert_unique_constraint(db_session: Session):
-    """Verify that Alert table enforces UniqueConstraint on (city, date)."""
-    alert1 = Alert(
+    """Verify that Alert table enforces uniqueness on record_id."""
+    record = AirQualityRecord(
         city="Haifa",
         date=date(2024, 11, 20),
+        pm25=260.0,
+        no2=60.0,
+        co2=6.0,
         aqi=350.0,
+        aqi_level="Hazardous",
     )
+    db_session.add(record)
+    db_session.commit()
+
+    alert1 = Alert(record=record)
     db_session.add(alert1)
     db_session.commit()
 
-    alert2 = Alert(
-        city="Haifa",
-        date=date(2024, 11, 20),
-        aqi=400.0,
-    )
+    assert alert1.city == "Haifa"
+    assert alert1.date == date(2024, 11, 20)
+    assert alert1.aqi == 350.0
+
+    alert2 = Alert(record_id=record.record_id)
     db_session.add(alert2)
     with pytest.raises(IntegrityError):
         db_session.commit()

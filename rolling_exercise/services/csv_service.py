@@ -115,7 +115,7 @@ def process_air_quality_csv(
     existing_alerts = {
         (alert.city.lower(), alert.date): alert
         for alert in db.scalars(
-            select(Alert).where(Alert.date.in_(distinct_dates))
+            select(Alert).join(AirQualityRecord).where(AirQualityRecord.date.in_(distinct_dates))
         ).all()
     }
 
@@ -157,15 +157,9 @@ def process_air_quality_csv(
                 f"High pollution alert triggered! City: {city}, Date: {record_date}, AQI: {aqi_value:.1f}"
             )
             if existing_alert:
-                existing_alert.aqi = aqi_value
                 existing_alert.record = target_record
             else:
-                alert = Alert(
-                    record=target_record,
-                    date=record_date,
-                    city=city,
-                    aqi=aqi_value,
-                )
+                alert = Alert(record=target_record)
                 db.add(alert)
                 existing_alerts[key] = alert
                 alerts_generated_count += 1
