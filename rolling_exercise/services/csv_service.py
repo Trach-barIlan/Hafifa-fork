@@ -11,9 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from calculate_aqi import calculate_aqi
-from constants import ALERT_AQI_THRESHOLD, COLUMN_MAPPING, REQUIRED_COLUMNS
+from config import settings
+from constants import COLUMN_MAPPING, REQUIRED_COLUMNS
 from logging_config import logger
 from models import AirQualityRecord, Alert
+
+ALERT_AQI_THRESHOLD = settings.alert_aqi_threshold
 
 
 @dataclass

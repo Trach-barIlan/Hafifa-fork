@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_file: str = str(BASE_DIR / "logs" / "app.log")
 
+    # Business Rules (overridable via ALERT_AQI_THRESHOLD env var)
+    alert_aqi_threshold: float = 300.0
+
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
         env_file_encoding="utf-8",

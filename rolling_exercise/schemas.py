@@ -23,7 +23,7 @@ class AlertResponse(BaseModel):
     """Schema representing a high pollution alert."""
 
     alert_id: int
-    record_id: int | None = None
+    record_id: int
     date: date
     city: str
     aqi: float

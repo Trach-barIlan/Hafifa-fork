@@ -12,8 +12,6 @@ LOG_BACKUP_COUNT = 5
 # ==============================================================================
 # CSV Ingestion & Validation Constants
 # ==============================================================================
-ALERT_AQI_THRESHOLD: float = 300.0
-
 COLUMN_MAPPING: dict[str, str] = {
     "date": "date",
     "city": "city",
