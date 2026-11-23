@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from config import settings
+from .config import settings
 
 connect_args = {}
 if settings.database_url.startswith("sqlite"):

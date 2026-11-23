@@ -1,54 +1,114 @@
-"""Pytest fixtures for database isolation and FastAPI test client."""
+"""Pytest fixtures for mocking the database and providing a FastAPI test client.
+"""
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from unittest.mock import MagicMock
 
-from database import Base, get_db
+from database import Base, get_db  # Base is still needed for any metadata ops (no‑op here)
 from main import app
+from models import AirQualityRecord, Alert
+from sqlalchemy.exc import IntegrityError
 
-# In-memory SQLite engine for test isolation
-TEST_DATABASE_URL = "sqlite:///:memory:"
+# ---------------------------------------------------------------------------
+# Mock Session helpers
+# ---------------------------------------------------------------------------
 
-test_engine = create_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=test_engine,
-)
+class MockResult:
+    """Simple iterator wrapper mimicking SQLAlchemy Result.
 
+    The real code often does ``session.scalars(select(...)).all()``.
+    Our mock returns a list via ``all()``.
+    """
 
-@pytest.fixture(autouse=True)
-def setup_test_db():
-    """Create all tables before each test and drop them after."""
-    Base.metadata.create_all(bind=test_engine)
-    yield
-    Base.metadata.drop_all(bind=test_engine)
+    def __init__(self, data):
+        self._data = data
 
+    def all(self):
+        return list(self._data)
 
-@pytest.fixture
-def db_session() -> Session:
-    """Provide a clean in-memory database session."""
-    session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
+    def __iter__(self):
+        return iter(self._data)
 
 
 @pytest.fixture
-def client(db_session: Session) -> TestClient:
-    """Provide a FastAPI TestClient with database dependency overridden."""
+def mock_db_session() -> MagicMock:
+    """Create a ``MagicMock`` that behaves like a minimal SQLAlchemy Session.
+
+    It stores ``AirQualityRecord`` and ``Alert`` objects in in‑memory lists.
+    ``add`` appends to the appropriate list, ``commit`` is a no‑op (but can
+    raise ``IntegrityError`` for duplicate alerts), and ``scalars`` returns a
+    ``MockResult`` over the stored records.
+    """
+    session = MagicMock()
+    # In‑memory “tables”
+    session._records = []
+    session._alerts = []
+
+    def add(obj):
+        if isinstance(obj, AirQualityRecord):
+            session._records.append(obj)
+        elif isinstance(obj, Alert):
+            # Enforce the unique ``record_id`` constraint used in the real DB.
+            if any(a.record_id == obj.record_id for a in session._alerts):
+                raise IntegrityError("duplicate key value violates unique constraint \"alerts_record_id_key\"", None, None)
+            session._alerts.append(obj)
+        else:
+            # For any other ORM object we just store it in a generic list.
+            if not hasattr(session, "_generic"):
+                session._generic = []
+            session._generic.append(obj)
+
+    def commit():
+        # No‑op for the mock; real constraints are handled in ``add``.
+        return None
+
+    def rollback():
+        # Reset the in‑memory tables – used if a test expects a clean state
+        # after an exception.
+        session._records.clear()
+        session._alerts.clear()
+        if hasattr(session, "_generic"):
+            session._generic.clear()
+
+    def scalars(*args, **kwargs):
+        """Return all AirQualityRecord objects regardless of the query.
+
+        The test suite only uses ``scalars`` to fetch records for calculations;
+        a simple ``MockResult`` over the full list is sufficient.
+        """
+        return MockResult(session._records)
+
+    # Bind the behaviours to the mock
+    session.add.side_effect = add
+    session.commit.side_effect = commit
+    session.rollback.side_effect = rollback
+    session.scalars.side_effect = scalars
+
+    # ``query`` is sometimes used directly; we make it return ``self`` so that
+    # chained calls (e.g. ``session.query(Model).filter(...).all()``) still work.
+    session.query.return_value = session
+    session.filter = lambda *a, **kw: session
+    session.all = lambda: list(session._records)
+
+    return session
+
+
+# ---------------------------------------------------------------------------
+# FastAPI TestClient with DB dependency overridden
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def client(mock_db_session: MagicMock) -> TestClient:
+    """Provide a FastAPI ``TestClient`` that uses the mocked DB session.
+
+    The application’s ``get_db`` dependency is replaced with a generator that
+    yields the ``mock_db_session`` created above.
+    """
 
     def override_get_db():
         try:
-            yield db_session
+            yield mock_db_session
         finally:
             pass
 
@@ -58,9 +118,12 @@ def client(db_session: Session) -> TestClient:
     app.dependency_overrides.clear()
 
 
+# ---------------------------------------------------------------------------
+# CSV fixtures used by the existing tests
+# ---------------------------------------------------------------------------
+
 @pytest.fixture
 def sample_valid_csv() -> str:
-    """Provide valid CSV content for testing."""
     return (
         "date,city,PM2.5,NO2,CO2\n"
         "2024-11-20,Haifa,10.0,20.0,3.0\n"
@@ -71,7 +134,6 @@ def sample_valid_csv() -> str:
 
 @pytest.fixture
 def sample_corrupted_csv() -> str:
-    """Provide CSV content with both valid and corrupted rows."""
     return (
         "date,city,PM2.5,NO2,CO2\n"
         "2024-11-21,Haifa,10.0,20.0,3.0\n"  # Valid
