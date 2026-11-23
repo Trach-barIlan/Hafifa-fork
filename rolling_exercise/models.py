@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
+
+
+@dataclass
+class IngestionResult:
+    """Summary of the CSV ingestion process."""
+
+    total_rows: int
+    valid_rows: int
+    corrupted_rows: int
+    alerts_generated: int
 
 
 class AirQualityRecord(Base):
