@@ -5,12 +5,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 from config import settings
 from database import init_db
+from exceptions import lookup_error_handler, value_error_handler
 from logging_config import logger
 from routers import air_quality, alerts
-import uvicorn
 
 
 @asynccontextmanager
@@ -31,6 +32,9 @@ app = FastAPI(
     debug=settings.debug,
 )
 
+# Register centralized exception handlers
+app.add_exception_handler(ValueError, value_error_handler)
+app.add_exception_handler(LookupError, lookup_error_handler)
 
 # Allow CORS for development convenience
 app.add_middleware(
@@ -59,5 +63,3 @@ if __name__ == "__main__":
         port=settings.app_port,
         reload=settings.debug,
     )
-
-# run app with uvicorn --reload main:app or just python3 main.py

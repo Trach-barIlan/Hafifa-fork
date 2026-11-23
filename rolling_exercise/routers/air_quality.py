@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -39,41 +39,21 @@ def upload_air_quality_data(
     """Upload air quality CSV data, validate rows, compute AQI, and store in DB."""
     if not file.filename or not file.filename.lower().endswith(".csv"):
         logger.error(f"Rejected non-CSV upload attempt: {file.filename}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file format. Please upload a valid .csv file.",
-        )
+        raise ValueError("Invalid file format. Please upload a valid .csv file.")
 
     logger.info(f"Processing upload request for file: {file.filename}")
-    try:
-        content = file.file.read()
-        if not content:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The uploaded file is empty.",
-            )
+    content = file.file.read()
+    if not content:
+        raise ValueError("The uploaded file is empty.")
 
-        result = process_air_quality_csv(content, db)
-        return UploadResponse(
-            message="File processed successfully.",
-            total_rows=result.total_rows,
-            valid_rows=result.valid_rows,
-            corrupted_rows=result.corrupted_rows,
-            alerts_generated=result.alerts_generated,
-        )
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    except Exception as exc:
-        logger.exception(f"Unexpected error processing upload: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while processing the CSV file.",
-        ) from exc
+    result = process_air_quality_csv(content, db)
+    return UploadResponse(
+        message="File processed successfully.",
+        total_rows=result.total_rows,
+        valid_rows=result.valid_rows,
+        corrupted_rows=result.corrupted_rows,
+        alerts_generated=result.alerts_generated,
+    )
 
 
 @router.get(
@@ -87,13 +67,7 @@ def get_air_quality_data(
     service: AirQualityService = Depends(get_air_quality_service),
 ) -> list[AirQualityRecord]:
     """Retrieve air quality data within an optional date range."""
-    try:
-        return service.get_records_by_range(start_date=start_date, end_date=end_date)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    return service.get_records_by_range(start_date=start_date, end_date=end_date)
 
 
 @router.get(
@@ -137,13 +111,7 @@ def get_city_aqi_average(
     service: AirQualityService = Depends(get_air_quality_service),
 ) -> CityAverageResponse:
     """Calculate and return the average AQI value for a specific city."""
-    try:
-        return service.get_city_average(city)
-    except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+    return service.get_city_average(city)
 
 
 @router.get(
