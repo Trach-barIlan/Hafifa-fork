@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from sqlalchemy import Date, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -14,14 +14,14 @@ class AirQualityRecord(Base):
 
     __tablename__ = "air_quality_records"
 
-    record_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    city: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    pm25: Mapped[float] = mapped_column(Float, nullable=False)
-    no2: Mapped[float] = mapped_column(Float, nullable=False)
-    co2: Mapped[float] = mapped_column(Float, nullable=False)
-    aqi: Mapped[float] = mapped_column(Float, nullable=False, index=True)
-    aqi_level: Mapped[str] = mapped_column(String(50), nullable=False)
+    record_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    date: Mapped[date] = mapped_column(index=True)
+    city: Mapped[str] = mapped_column(String(100), index=True)
+    pm25: Mapped[float] = mapped_column()
+    no2: Mapped[float] = mapped_column()
+    co2: Mapped[float] = mapped_column()
+    aqi: Mapped[float] = mapped_column(index=True)
+    aqi_level: Mapped[str] = mapped_column(String(50))
 
     alerts: Mapped[list[Alert]] = relationship(
         "Alert",
@@ -46,16 +46,14 @@ class Alert(Base):
 
     __tablename__ = "alerts"
 
-    alert_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     record_id: Mapped[int | None] = mapped_column(
-        Integer,
         ForeignKey("air_quality_records.record_id", ondelete="CASCADE"),
-        nullable=True,
         index=True,
     )
-    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    city: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    aqi: Mapped[float] = mapped_column(Float, nullable=False)
+    date: Mapped[date] = mapped_column(index=True)
+    city: Mapped[str] = mapped_column(String(100), index=True)
+    aqi: Mapped[float] = mapped_column()
 
     record: Mapped[AirQualityRecord | None] = relationship(
         "AirQualityRecord",
