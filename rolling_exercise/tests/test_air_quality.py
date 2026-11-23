@@ -1,4 +1,4 @@
-"""Integration tests for all FastAPI endpoints."""
+"""Tests for air quality router endpoints and root health check."""
 
 from fastapi.testclient import TestClient
 
@@ -30,9 +30,8 @@ def test_upload_empty_file(client: TestClient):
     assert "empty" in response.json()["detail"]
 
 
-def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
-    """Test upload, filtering, aggregation, and querying workflow."""
-    # 1. Upload CSV
+def test_upload_valid_csv(client: TestClient, sample_valid_csv: str):
+    """Test uploading valid CSV data."""
     upload_res = client.post(
         "/air_quality_data",
         files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
@@ -42,14 +41,26 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     assert data["total_rows"] == 3
     assert data["valid_rows"] == 3
 
-    # 2. GET all air quality data
+
+def test_get_all_air_quality_data(client: TestClient, sample_valid_csv: str):
+    """Test GET all air quality data after uploading."""
+    client.post(
+        "/air_quality_data",
+        files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
+    )
     get_res = client.get("/air_quality_data")
     assert get_res.status_code == 200
     records_json = get_res.json()
     assert len(records_json) == 3
     assert "record_id" in records_json[0]
 
-    # 3. GET air quality data with date filter
+
+def test_get_air_quality_data_date_filter(client: TestClient, sample_valid_csv: str):
+    """Test GET air quality data with date filters (matching and out-of-range)."""
+    client.post(
+        "/air_quality_data",
+        files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
+    )
     filtered_res = client.get(
         "/air_quality_data",
         params={"start_date": "2024-11-20", "end_date": "2024-11-20"},
@@ -64,7 +75,13 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     assert out_of_range_res.status_code == 200
     assert len(out_of_range_res.json()) == 0
 
-    # 4. GET air quality data by city
+
+def test_get_air_quality_data_by_city(client: TestClient, sample_valid_csv: str):
+    """Test GET air quality data by city name (existing and non-existing)."""
+    client.post(
+        "/air_quality_data",
+        files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
+    )
     city_res = client.get("/air_quality_data/city", params={"city": "Haifa"})
     assert city_res.status_code == 200
     assert len(city_res.json()) == 1
@@ -73,71 +90,6 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     empty_city_res = client.get("/air_quality_data/city", params={"city": "Atlantis"})
     assert empty_city_res.status_code == 200
     assert empty_city_res.json() == []
-
-    # 5. GET city AQI history
-    history_res = client.get("/city_aqi_history", params={"city": "Haifa"})
-    assert history_res.status_code == 200
-    history_json = history_res.json()
-    assert history_json["city"] == "Haifa"
-    assert len(history_json["history"]) == 1
-
-    empty_history_res = client.get("/city_aqi_history", params={"city": "Atlantis"})
-    assert empty_history_res.status_code == 200
-    assert empty_history_res.json()["history"] == []
-
-    # 6. GET city AQI average
-    avg_res = client.get("/city_aqi_average", params={"city": "Haifa"})
-    assert avg_res.status_code == 200
-    avg_json = avg_res.json()
-    assert avg_json["city"] == "Haifa"
-    assert avg_json["reading_count"] == 1
-    assert isinstance(avg_json["average_aqi"], float)
-
-    avg_not_found = client.get("/city_aqi_average", params={"city": "Atlantis"})
-    assert avg_not_found.status_code == 404
-
-    # 7. GET best cities (lowest 3 AQI)
-    best_res = client.get("/best_cities")
-    assert best_res.status_code == 200
-    best_cities = best_res.json()
-    assert len(best_cities) == 3
-    # Check that best cities are sorted ascending by AQI
-    aqi_values = [c["aqi"] for c in best_cities]
-    assert aqi_values == sorted(aqi_values)
-
-
-def test_alerts_endpoints(client: TestClient, sample_corrupted_csv: str):
-    """Test alert generation and alert retrieval endpoints."""
-    # Upload CSV that triggers an alert for Netanya (AQI > 300)
-    upload_res = client.post(
-        "/air_quality_data",
-        files={"file": ("alerts_sample.csv", sample_corrupted_csv.encode("utf-8"), "text/csv")},
-    )
-    assert upload_res.status_code == 201
-    assert upload_res.json()["alerts_generated"] == 1
-
-    # GET /alerts
-    alerts_res = client.get("/alerts")
-    assert alerts_res.status_code == 200
-    alerts = alerts_res.json()
-    assert len(alerts) == 1
-    assert alerts[0]["city"] == "Netanya"
-    assert "alert_id" in alerts[0]
-    assert "record_id" in alerts[0]
-
-    # GET /alerts/by_date
-    date_alerts = client.get("/alerts/by_date", params={"date": "2024-11-21"})
-    assert date_alerts.status_code == 200
-    assert len(date_alerts.json()) == 1
-
-    empty_date_alerts = client.get("/alerts/by_date", params={"date": "2020-01-01"})
-    assert empty_date_alerts.status_code == 200
-    assert len(empty_date_alerts.json()) == 0
-
-    # GET /alerts/by_city
-    city_alerts = client.get("/alerts/by_city", params={"city": "Netanya"})
-    assert city_alerts.status_code == 200
-    assert len(city_alerts.json()) == 1
 
 
 def test_inverted_date_range(client: TestClient):
@@ -148,6 +100,55 @@ def test_inverted_date_range(client: TestClient):
     )
     assert res.status_code == 400
     assert "start_date cannot be later than end_date" in res.json()["detail"]
+
+
+def test_get_city_aqi_history(client: TestClient, sample_valid_csv: str):
+    """Test GET city AQI history for existing and non-existing cities."""
+    client.post(
+        "/air_quality_data",
+        files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
+    )
+    history_res = client.get("/city_aqi_history", params={"city": "Haifa"})
+    assert history_res.status_code == 200
+    history_json = history_res.json()
+    assert history_json["city"] == "Haifa"
+    assert len(history_json["history"]) == 1
+
+    empty_history_res = client.get("/city_aqi_history", params={"city": "Atlantis"})
+    assert empty_history_res.status_code == 200
+    assert empty_history_res.json()["history"] == []
+
+
+def test_get_city_aqi_average(client: TestClient, sample_valid_csv: str):
+    """Test GET city AQI average for existing and non-existing cities."""
+    client.post(
+        "/air_quality_data",
+        files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
+    )
+    avg_res = client.get("/city_aqi_average", params={"city": "Haifa"})
+    assert avg_res.status_code == 200
+    avg_json = avg_res.json()
+    assert avg_json["city"] == "Haifa"
+    assert avg_json["reading_count"] == 1
+    assert isinstance(avg_json["average_aqi"], float)
+
+    avg_not_found = client.get("/city_aqi_average", params={"city": "Atlantis"})
+    assert avg_not_found.status_code == 404
+
+
+def test_get_best_cities(client: TestClient, sample_valid_csv: str):
+    """Test GET best cities (lowest 3 AQI)."""
+    client.post(
+        "/air_quality_data",
+        files={"file": ("measurements.csv", sample_valid_csv.encode("utf-8"), "text/csv")},
+    )
+    best_res = client.get("/best_cities")
+    assert best_res.status_code == 200
+    best_cities = best_res.json()
+    assert len(best_cities) == 3
+    # Check that best cities are sorted ascending by AQI
+    aqi_values = [c["aqi"] for c in best_cities]
+    assert aqi_values == sorted(aqi_values)
 
 
 def test_best_cities_returns_distinct_cities(client: TestClient):
@@ -174,5 +175,3 @@ def test_best_cities_returns_distinct_cities(client: TestClient):
     # Verify that CityA's reading is its MOST RECENT date (2024-11-22)
     city_a_record = next(item for item in data if item["city"] == "CityA")
     assert city_a_record["date"] == "2024-11-22"
-
-
