@@ -4,18 +4,20 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-
 from config import settings
+from constants import (
+    DATE_FORMAT,
+    DEFAULT_LOGGER_NAME,
+    LOG_BACKUP_COUNT,
+    LOG_FORMAT,
+    LOG_MAX_BYTES,
+)
 
 LOG_FILE = Path(settings.log_file)
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-# Define log format
-LOG_FORMAT = "%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
-DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-
-def setup_logger(name: str = "air_quality_api") -> logging.Logger:
+def setup_logger(name: str = DEFAULT_LOGGER_NAME) -> logging.Logger:
     """Configure and return an application logger with console and file handlers.
 
     Args:
@@ -36,8 +38,8 @@ def setup_logger(name: str = "air_quality_api") -> logging.Logger:
         # Rotating File Handler (for preventing unbounded space usage, max 5MB with 5 backups)
         file_handler = RotatingFileHandler(
             LOG_FILE,
-            maxBytes=5 * 1024 * 1024,
-            backupCount=5,
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
             encoding="utf-8",
         )
         file_handler.setLevel(level)

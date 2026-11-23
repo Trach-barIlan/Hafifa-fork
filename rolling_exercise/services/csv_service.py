@@ -11,20 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from calculate_aqi import calculate_aqi
-from config import settings
+from constants import ALERT_AQI_THRESHOLD, COLUMN_MAPPING, REQUIRED_COLUMNS
 from logging_config import logger
 from models import AirQualityRecord, Alert
-
-ALERT_AQI_THRESHOLD = settings.alert_aqi_threshold
-
-COLUMN_MAPPING = {
-    "date": "date",
-    "city": "city",
-    "pm2.5": "pm25",
-    "pm25": "pm25",
-    "no2": "no2",
-    "co2": "co2",
-}
 
 
 @dataclass
@@ -76,8 +65,7 @@ def process_air_quality_csv(
         raise ValueError(f"Could not parse CSV content: {exc}") from exc
 
     df = _normalize_columns(df)
-    required_columns = {"date", "city", "pm25", "no2", "co2"}
-    missing_columns = required_columns - set(df.columns)
+    missing_columns = REQUIRED_COLUMNS - set(df.columns)
     if missing_columns:
         err_msg = f"CSV is missing required columns: {sorted(missing_columns)}"
         logger.error(err_msg)

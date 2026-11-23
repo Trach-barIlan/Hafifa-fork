@@ -1,13 +1,13 @@
 """Endpoints for air quality measurements, ingestion, and analytics."""
 
 from datetime import date
-from logging import log
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from constants import BEST_CITIES_LIMIT
 from database import get_db
 from logging_config import logger
 from models import AirQualityRecord
@@ -219,7 +219,7 @@ def get_best_cities(
             & (AirQualityRecord.date == subq.c.latest_date),
         )
         .order_by(AirQualityRecord.aqi.asc(), AirQualityRecord.city.asc())
-        .limit(3)
+        .limit(BEST_CITIES_LIMIT)
     )
 
     records = db.scalars(stmt).all()

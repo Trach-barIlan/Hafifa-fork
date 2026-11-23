@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 class Settings(BaseSettings):
-    """Application settings with type validation and defaults."""
+    """Application settings loaded from environment variables with defaults."""
 
     # Server Configuration
     app_name: str = "Air Quality Monitoring API"
@@ -21,9 +21,6 @@ class Settings(BaseSettings):
     # Logging Configuration
     log_level: str = "INFO"
     log_file: str = str(BASE_DIR / "logs" / "app.log")
-
-    # Business Rules
-    alert_aqi_threshold: float = 300.0
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
