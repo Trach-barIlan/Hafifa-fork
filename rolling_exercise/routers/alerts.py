@@ -2,16 +2,19 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
 
 from database import get_db
-from logging_config import logger
-from models import AirQualityRecord, Alert
+from models import Alert
 from schemas import AlertResponse
+from services.alert_service import AlertService
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
+
+
+def get_alert_service(db=Depends(get_db)) -> AlertService:
+    """Dependency provider for AlertService."""
+    return AlertService(db)
 
 
 @router.get(
@@ -22,20 +25,10 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
 def get_all_alerts(
     alert_date: date | None = Query(None, alias="date", description="Filter by date (YYYY-MM-DD)"),
     city: str | None = Query(None, description="Filter by city name"),
-    db: Session = Depends(get_db),
+    service: AlertService = Depends(get_alert_service),
 ) -> list[Alert]:
     """Retrieve all high-pollution alerts, optionally filtered by date and/or city."""
-    logger.info(f"Retrieving all alerts: alert_date={alert_date}, city={city}")
-    stmt = select(Alert).join(AirQualityRecord)
-
-    if alert_date:
-        stmt = stmt.where(AirQualityRecord.date == alert_date)
-    if city:
-        stmt = stmt.where(func.lower(AirQualityRecord.city) == city.strip().lower())
-
-    stmt = stmt.order_by(AirQualityRecord.date.desc(), Alert.alert_id.desc())
-    alerts = db.scalars(stmt).all()
-    return list(alerts)
+    return service.get_alerts(alert_date=alert_date, city=city)
 
 
 @router.get(
@@ -45,11 +38,10 @@ def get_all_alerts(
 )
 def get_alerts_by_date(
     alert_date: date = Query(..., alias="date", description="Target date (YYYY-MM-DD)"),
-    db: Session = Depends(get_db),
+    service: AlertService = Depends(get_alert_service),
 ) -> list[Alert]:
     """Retrieve all alerts registered for a specific date."""
-    logger.info(f"Retrieving alerts for date: {alert_date}")
-    return get_all_alerts(alert_date=alert_date, city=None, db=db)
+    return service.get_alerts_by_date(alert_date)
 
 
 @router.get(
@@ -59,8 +51,7 @@ def get_alerts_by_date(
 )
 def get_alerts_by_city(
     city: str = Query(..., min_length=1, description="Target city name"),
-    db: Session = Depends(get_db),
+    service: AlertService = Depends(get_alert_service),
 ) -> list[Alert]:
     """Retrieve all alerts registered for a specific city."""
-    logger.info(f"Retrieving alerts for city: {city}")
-    return get_all_alerts(alert_date=None, city=city, db=db)
+    return service.get_alerts_by_city(city)

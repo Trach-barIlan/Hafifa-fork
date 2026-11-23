@@ -3,11 +3,8 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from constants import BEST_CITIES_LIMIT
 from database import get_db
 from logging_config import logger
 from models import AirQualityRecord
@@ -15,13 +12,18 @@ from schemas import (
     AirQualityRecordResponse,
     BestCityItem,
     CityAverageResponse,
-    CityHistoryItem,
     CityHistoryResponse,
     UploadResponse,
 )
+from services.air_quality_service import AirQualityService
 from services.csv_service import process_air_quality_csv
 
 router = APIRouter(tags=["Air Quality"])
+
+
+def get_air_quality_service(db: Session = Depends(get_db)) -> AirQualityService:
+    """Dependency provider for AirQualityService."""
+    return AirQualityService(db)
 
 
 @router.post(
@@ -82,26 +84,16 @@ def upload_air_quality_data(
 def get_air_quality_data(
     start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
-    db: Session = Depends(get_db),
+    service: AirQualityService = Depends(get_air_quality_service),
 ) -> list[AirQualityRecord]:
     """Retrieve air quality data within an optional date range."""
-    logger.info(f"Retrieving air quality data for range: start_date={start_date}, end_date={end_date}")
-    if start_date and end_date and start_date > end_date:
+    try:
+        return service.get_records_by_range(start_date=start_date, end_date=end_date)
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date cannot be later than end_date.",
-        )
-
-    stmt = select(AirQualityRecord)
-
-    if start_date:
-        stmt = stmt.where(AirQualityRecord.date >= start_date)
-    if end_date:
-        stmt = stmt.where(AirQualityRecord.date <= end_date)
-
-    stmt = stmt.order_by(AirQualityRecord.date.asc(), AirQualityRecord.city.asc())
-    records = db.scalars(stmt).all()
-    return list(records)
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
@@ -116,19 +108,10 @@ def get_air_quality_data(
 )
 def get_air_quality_data_by_city(
     city: str = Query(..., min_length=1, description="City name"),
-    db: Session = Depends(get_db),
+    service: AirQualityService = Depends(get_air_quality_service),
 ) -> list[AirQualityRecord]:
     """Retrieve all air quality records for a specific city."""
-    logger.info(f"Retrieving air quality records for city: {city}")
-    stmt = (
-        select(AirQualityRecord)
-        .where(func.lower(AirQualityRecord.city) == city.strip().lower())
-        .order_by(AirQualityRecord.date.desc())
-    )
-    records = db.scalars(stmt).all()
-    if not records:
-        logger.info(f"No records found for city '{city}'")
-    return list(records)
+    return service.get_records_by_city(city)
 
 
 @router.get(
@@ -138,25 +121,10 @@ def get_air_quality_data_by_city(
 )
 def get_city_aqi_history(
     city: str = Query(..., min_length=1, description="City name"),
-    db: Session = Depends(get_db),
+    service: AirQualityService = Depends(get_air_quality_service),
 ) -> CityHistoryResponse:
     """Retrieve historical AQI timeline for a specific city."""
-    logger.info(f"Retrieving AQI history for city: {city}")
-    stmt = (
-        select(AirQualityRecord)
-        .where(func.lower(AirQualityRecord.city) == city.strip().lower())
-        .order_by(AirQualityRecord.date.asc())
-    )
-    records = db.scalars(stmt).all()
-    if not records:
-        logger.info(f"No AQI history found for city '{city}'")
-
-    history = [
-        CityHistoryItem(date=rec.date, aqi=rec.aqi, aqi_level=rec.aqi_level)
-        for rec in records
-    ]
-    city_name = records[0].city if records else city.strip()
-    return CityHistoryResponse(city=city_name, history=history)
+    return service.get_city_history(city)
 
 
 @router.get(
@@ -166,28 +134,16 @@ def get_city_aqi_history(
 )
 def get_city_aqi_average(
     city: str = Query(..., min_length=1, description="City name"),
-    db: Session = Depends(get_db),
+    service: AirQualityService = Depends(get_air_quality_service),
 ) -> CityAverageResponse:
     """Calculate and return the average AQI value for a specific city."""
-    logger.info(f"Calculating AQI average for city: {city}")
-    stmt = select(
-        func.avg(AirQualityRecord.aqi).label("avg_aqi"),
-        func.count(AirQualityRecord.record_id).label("record_count"),
-    ).where(func.lower(AirQualityRecord.city) == city.strip().lower())
-
-    result = db.execute(stmt).one_or_none()
-
-    if not result or result.record_count == 0 or result.avg_aqi is None:
+    try:
+        return service.get_city_average(city)
+    except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No records found to calculate average for city '{city}'.",
-        )
-
-    return CityAverageResponse(
-        city=city.strip(),
-        average_aqi=round(float(result.avg_aqi), 2),
-        reading_count=int(result.record_count),
-    )
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
@@ -196,42 +152,7 @@ def get_city_aqi_average(
     summary="Retrieve top 3 cities with the best (lowest) AQI based on their most recent reading",
 )
 def get_best_cities(
-    db: Session = Depends(get_db),
+    service: AirQualityService = Depends(get_air_quality_service),
 ) -> list[BestCityItem]:
     """Retrieve 3 cities with the best air quality based on their most recent reading."""
-    logger.info("Retrieving top 3 cities with the best AQI based on most recent reading")
-    # Subquery to find the most recent date for each city
-    subq = (
-        select(
-            AirQualityRecord.city,
-            func.max(AirQualityRecord.date).label("latest_date"),
-        )
-        .group_by(AirQualityRecord.city)
-        .subquery()
-    )
-
-    # Join back to get each city's most recent record, ordered by lowest AQI
-    stmt = (
-        select(AirQualityRecord)
-        .join(
-            subq,
-            (AirQualityRecord.city == subq.c.city)
-            & (AirQualityRecord.date == subq.c.latest_date),
-        )
-        .order_by(AirQualityRecord.aqi.asc(), AirQualityRecord.city.asc())
-        .limit(BEST_CITIES_LIMIT)
-    )
-
-    records = db.scalars(stmt).all()
-
-    return [
-        BestCityItem(
-            city=rec.city,
-            date=rec.date,
-            aqi=rec.aqi,
-            aqi_level=rec.aqi_level,
-        )
-        for rec in records
-    ]
-
-
+    return service.get_best_cities()
