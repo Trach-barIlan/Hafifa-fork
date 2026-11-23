@@ -33,7 +33,7 @@ def get_all_alerts(
     if city:
         stmt = stmt.where(func.lower(Alert.city) == city.strip().lower())
 
-    stmt = stmt.order_by(Alert.date.desc(), Alert.id.desc())
+    stmt = stmt.order_by(Alert.date.desc(), Alert.alert_id.desc())
     alerts = db.scalars(stmt).all()
     return list(alerts)
 

@@ -14,7 +14,7 @@ class AirQualityRecord(Base):
 
     __tablename__ = "air_quality_records"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    record_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     city: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     pm25: Mapped[float] = mapped_column(Float, nullable=False)
@@ -36,7 +36,7 @@ class AirQualityRecord(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<AirQualityRecord(id={self.id}, city='{self.city}', "
+            f"<AirQualityRecord(record_id={self.record_id}, city='{self.city}', "
             f"date={self.date}, aqi={self.aqi:.1f}, level='{self.aqi_level}')>"
         )
 
@@ -46,10 +46,10 @@ class Alert(Base):
 
     __tablename__ = "alerts"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     record_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("air_quality_records.id", ondelete="CASCADE"),
+        ForeignKey("air_quality_records.record_id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
@@ -69,6 +69,6 @@ class Alert(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Alert(id={self.id}, record_id={self.record_id}, "
+            f"<Alert(alert_id={self.alert_id}, record_id={self.record_id}, "
             f"city='{self.city}', date={self.date}, aqi={self.aqi:.1f})>"
         )

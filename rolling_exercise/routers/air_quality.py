@@ -172,7 +172,7 @@ def get_city_aqi_average(
     logger.info(f"Calculating AQI average for city: {city}")
     stmt = select(
         func.avg(AirQualityRecord.aqi).label("avg_aqi"),
-        func.count(AirQualityRecord.id).label("record_count"),
+        func.count(AirQualityRecord.record_id).label("record_count"),
     ).where(func.lower(AirQualityRecord.city) == city.strip().lower())
 
     result = db.execute(stmt).one_or_none()

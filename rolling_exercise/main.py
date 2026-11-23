@@ -10,6 +10,7 @@ from config import settings
 from database import init_db
 from logging_config import logger
 from routers import air_quality, alerts
+import uvicorn
 
 
 @asynccontextmanager
@@ -52,8 +53,6 @@ def health_check() -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run(
         "main:app",
         host=settings.app_host,

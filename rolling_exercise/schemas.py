@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class AirQualityRecordResponse(BaseModel):
     """Schema representing an air quality database record."""
 
-    id: int
+    record_id: int
     date: date
     city: str
     pm25: float
@@ -22,7 +22,7 @@ class AirQualityRecordResponse(BaseModel):
 class AlertResponse(BaseModel):
     """Schema representing a high pollution alert."""
 
-    id: int
+    alert_id: int
     record_id: int | None = None
     date: date
     city: str

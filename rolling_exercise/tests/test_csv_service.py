@@ -70,8 +70,10 @@ def test_alert_has_record_foreign_key(db_session: Session, sample_corrupted_csv:
     process_air_quality_csv(sample_corrupted_csv, db_session)
     alert = db_session.query(Alert).first()
     assert alert is not None
+    assert alert.alert_id is not None
     assert alert.record_id is not None
     assert alert.record is not None
+    assert alert.record.record_id == alert.record_id
     assert alert.record.city == alert.city
 
 

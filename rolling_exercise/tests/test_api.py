@@ -45,7 +45,9 @@ def test_full_api_workflow(client: TestClient, sample_valid_csv: str):
     # 2. GET all air quality data
     get_res = client.get("/air_quality_data")
     assert get_res.status_code == 200
-    assert len(get_res.json()) == 3
+    records_json = get_res.json()
+    assert len(records_json) == 3
+    assert "record_id" in records_json[0]
 
     # 3. GET air quality data with date filter
     filtered_res = client.get(
@@ -120,6 +122,8 @@ def test_alerts_endpoints(client: TestClient, sample_corrupted_csv: str):
     alerts = alerts_res.json()
     assert len(alerts) == 1
     assert alerts[0]["city"] == "Netanya"
+    assert "alert_id" in alerts[0]
+    assert "record_id" in alerts[0]
 
     # GET /alerts/by_date
     date_alerts = client.get("/alerts/by_date", params={"date": "2024-11-21"})
